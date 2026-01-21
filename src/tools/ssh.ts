@@ -434,8 +434,96 @@ export class SshMCP {
         }
       }
     );
+
+    // 更新连接配置
+    this.server.tool(
+      "updateConnection",
+      "Updates the configuration of an existing SSH connection. Can change host, port, credentials, etc. without deleting the connection. Credentials are securely stored using keytar when rememberPassword is true.",
+      {
+        connectionId: z.string(),
+        host: z.string().optional(),
+        port: z.number().optional(),
+        username: z.string().optional(),
+        password: z.string().optional(),
+        privateKey: z.string().optional(),
+        passphrase: z.string().optional(),
+        name: z.string().optional(),
+        rememberPassword: z.boolean().optional().default(false),
+        reconnect: z.boolean().optional().default(false)
+      },
+      async ({ connectionId, host, port, username, password, privateKey, passphrase, name, rememberPassword, reconnect }) => {
+        try {
+          const connection = this.sshService.getConnection(connectionId);
+
+          if (!connection) {
+            return {
+              content: [{
+                type: "text",
+                text: `错误: 连接 ${connectionId} 不存在`
+              }],
+              isError: true
+            };
+          }
+
+          const oldHost = connection.config.host;
+          const oldName = connection.name || connectionId;
+
+          // Build updated config (only include provided values)
+          const updatedConfig: Partial<SSHConnectionConfig> = {};
+          if (host !== undefined) updatedConfig.host = host;
+          if (port !== undefined) updatedConfig.port = port;
+          if (username !== undefined) updatedConfig.username = username;
+          if (password !== undefined) updatedConfig.password = password;
+          if (privateKey !== undefined) updatedConfig.privateKey = privateKey;
+          if (passphrase !== undefined) updatedConfig.passphrase = passphrase;
+
+          // Update connection (credentials saved to keytar if rememberPassword=true)
+          const updatedConn = await this.sshService.updateConnection(
+            connectionId,
+            { ...updatedConfig, name },
+            rememberPassword
+          );
+
+          // Clear sensitive data from memory after saving
+          if (rememberPassword && (password !== undefined || passphrase !== undefined)) {
+            updatedConn.config.password = undefined;
+            updatedConn.config.passphrase = undefined;
+          }
+
+          // Reconnect if requested
+          if (reconnect) {
+            await this.sshService.connect(updatedConn.config, updatedConn.name, rememberPassword, updatedConn.tags);
+          }
+
+          let output = `连接 "${oldName}" 已更新:\n`;
+          if (host && host !== oldHost) output += `  主机: ${oldHost} → ${host}\n`;
+          if (port !== undefined) output += `  端口: ${updatedConn.config.port}\n`;
+          if (username !== undefined) output += `  用户名: ${username}\n`;
+          if (name !== undefined && name !== oldName) output += `  名称: ${oldName} → ${name}\n`;
+          if (rememberPassword && (password !== undefined || passphrase !== undefined)) {
+            output += `  凭证: 已安全保存到 keytar 🔒\n`;
+          }
+          output += `\n${this.formatConnectionInfo(updatedConn)}`;
+
+          return {
+            content: [{
+              type: "text",
+              text: output
+            }]
+          };
+        } catch (error) {
+          return {
+            content: [{
+              type: "text",
+              text: `更新连接时出错: ${error instanceof Error ? error.message : String(error)}`
+            }],
+            isError: true
+          };
+        }
+      }
+    );
   }
-  
+
   /**
    * 注册命令执行工具
    */

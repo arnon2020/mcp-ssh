@@ -1262,7 +1262,49 @@ export class SSHService {
     
     return true;
   }
-  
+
+  // 更新连接配置（安全存储凭证）
+  public async updateConnection(
+    connectionId: string,
+    updates: Partial<SSHConnectionConfig> & { name?: string },
+    rememberPassword: boolean = false
+  ): Promise<SSHConnection> {
+    await this.ensureReady();
+
+    const connection = this.connections.get(connectionId);
+    if (!connection) {
+      throw new Error(`连接 ${connectionId} 不存在`);
+    }
+
+    const wasConnected = connection.status === ConnectionStatus.CONNECTED;
+    const oldHost = connection.config.host;
+    const oldName = connection.name || connectionId;
+
+    // 保存旧凭证用于清理
+    const hadPassword = !!connection.config.password;
+    const hadPassphrase = !!connection.config.passphrase;
+
+    // 更新配置
+    Object.assign(connection.config, updates);
+
+    // 更新名称
+    if (updates.name !== undefined) {
+      connection.name = updates.name;
+    }
+
+    // 保存新凭证到 keytar
+    if (rememberPassword && (updates.password !== undefined || updates.passphrase !== undefined)) {
+      await this.saveCredentials(connectionId, updates.password, updates.passphrase);
+    }
+
+    // 如果已连接，断开以应用新配置
+    if (wasConnected) {
+      await this.disconnect(connectionId);
+    }
+
+    return connection;
+  }
+
   // 创建SSH隧道
   public async createTunnel(config: TunnelConfig): Promise<string> {
     const connection = this.connections.get(config.connectionId);
