@@ -14,50 +14,50 @@ export class SshMCP {
   private backgroundExecutions: Map<string, { interval: NodeJS.Timeout, lastCheck: Date }> = new Map();
 
   constructor() {
-    // 初始化SSH服务
+    // Initialize SSH service
     this.sshService = new SSHService();
 
-    // 初始化MCP服务器
+    // Initialize MCP server
     this.server = new McpServer({
       name: "ssh-mcp",
       version: "1.0.0"
     });
 
-    // 注册工具
+    // Register tools
     this.registerTools();
 
-    // 连接到标准输入/输出
+    // Connect to standard input/output
     const transport = new StdioServerTransport();
     this.server.connect(transport).catch(err => {
-      console.error('连接MCP传输错误:', err);
+      console.error('MCP transport connection error:', err);
     });
   }
 
   /**
-   * 注册所有MCP工具
+   * Register all MCP tools
    */
   private registerTools(): void {
-    // 连接管理
+    // Connection management
     this.registerConnectionTools();
-    
-    // 命令执行
+
+    // Command execution
     this.registerCommandTools();
-    
-    // 文件传输
+
+    // File transfer
     this.registerFileTools();
-    
-    // 会话管理
+
+    // Session management
     this.registerSessionTools();
-    
-    // 终端交互
+
+    // Terminal interaction
     this.registerTerminalTools();
 
-    // 隧道管理
+    // Tunnel management
     this.registerTunnelTools();
   }
 
   /**
-   * 格式化连接信息输出
+   * Format connection info output
    */
   private formatConnectionInfo(connection: any, includePassword: boolean = false): string {
     const statusEmoji = {
@@ -67,83 +67,83 @@ export class SshMCP {
       [ConnectionStatus.RECONNECTING]: '🟠',
       [ConnectionStatus.ERROR]: '🔴'
     };
-    
+
     const statusText = {
-      [ConnectionStatus.CONNECTED]: '已连接',
-      [ConnectionStatus.CONNECTING]: '连接中',
-      [ConnectionStatus.DISCONNECTED]: '已断开',
-      [ConnectionStatus.RECONNECTING]: '重连中',
-      [ConnectionStatus.ERROR]: '错误'
+      [ConnectionStatus.CONNECTED]: 'Connected',
+      [ConnectionStatus.CONNECTING]: 'Connecting',
+      [ConnectionStatus.DISCONNECTED]: 'Disconnected',
+      [ConnectionStatus.RECONNECTING]: 'Reconnecting',
+      [ConnectionStatus.ERROR]: 'Error'
     };
 
     let info = `${statusEmoji[connection.status as ConnectionStatus]} ${connection.name || connection.id}\n`;
     info += `ID: ${connection.id}\n`;
-    info += `主机: ${connection.config.host}:${connection.config.port || 22}\n`;
-    info += `用户名: ${connection.config.username}\n`;
-    
+    info += `Host: ${connection.config.host}:${connection.config.port || 22}\n`;
+    info += `Username: ${connection.config.username}\n`;
+
     if (includePassword && connection.config.password) {
-      info += `密码: ${'*'.repeat(connection.config.password.length)}\n`;
+      info += `Password: ${'*'.repeat(connection.config.password.length)}\n`;
     }
-    
+
     if (connection.config.privateKey) {
-      info += `私钥认证: 是\n`;
+      info += `Private Key Auth: Yes\n`;
     }
-    
-    info += `状态: ${statusText[connection.status as ConnectionStatus]}\n`;
-    
+
+    info += `Status: ${statusText[connection.status as ConnectionStatus]}\n`;
+
     if (connection.lastError) {
-      info += `最近错误: ${connection.lastError}\n`;
+      info += `Last Error: ${connection.lastError}\n`;
     }
-    
+
     if (connection.lastUsed) {
-      info += `最后使用: ${connection.lastUsed.toLocaleString()}\n`;
+      info += `Last Used: ${connection.lastUsed.toLocaleString()}\n`;
     }
-    
+
     if (connection.currentDirectory) {
-      info += `当前目录: ${connection.currentDirectory}\n`;
+      info += `Current Directory: ${connection.currentDirectory}\n`;
     }
-    
+
     if (connection.tags && connection.tags.length > 0) {
-      info += `标签: ${connection.tags.join(', ')}\n`;
+      info += `Tags: ${connection.tags.join(', ')}\n`;
     }
-    
+
     if (this.activeConnections.has(connection.id)) {
       const lastActive = this.activeConnections.get(connection.id);
       if (lastActive) {
-        info += `活跃度: ${this.formatTimeDifference(lastActive)}\n`;
+        info += `Activity: ${this.formatTimeDifference(lastActive)}\n`;
       }
     }
-    
+
     if (this.backgroundExecutions.has(connection.id)) {
-      info += `后台任务: 活跃中\n`;
+      info += `Background Tasks: Active\n`;
     }
     
     return info;
   }
   
   /**
-   * 格式化时间差
+   * Format time difference
    */
   private formatTimeDifference(date: Date): string {
     const now = new Date();
     const diffMs = now.getTime() - date.getTime();
-    
+
     if (diffMs < 60000) {
-      return '刚刚活跃';
+      return 'Just active';
     } else if (diffMs < 3600000) {
       const minutes = Math.floor(diffMs / 60000);
-      return `${minutes}分钟前活跃`;
+      return `Active ${minutes} minutes ago`;
     } else if (diffMs < 86400000) {
       const hours = Math.floor(diffMs / 3600000);
-      return `${hours}小时前活跃`;
+      return `Active ${hours} hours ago`;
     } else {
       const days = Math.floor(diffMs / 86400000);
-      return `${days}天前活跃`;
+      return `Active ${days} days ago`;
     }
   }
-  
+
   /**
-   * 格式化文件大小
+   * Format file size
    */
   private formatFileSize(bytes: number): string {
     if (bytes < 1024) {
@@ -158,7 +158,7 @@ export class SshMCP {
   }
 
   /**
-   * 停止后台任务执行
+   * Stop background task execution
    */
   private stopBackgroundExecution(connectionId: string): void {
     const bgExec = this.backgroundExecutions.get(connectionId);
@@ -167,9 +167,9 @@ export class SshMCP {
       this.backgroundExecutions.delete(connectionId);
     }
   }
-  
+
   /**
-   * 注册连接管理工具
+   * Register connection management tools
    */
   private registerConnectionTools(): void {
     // 创建新连接
@@ -222,14 +222,14 @@ export class SshMCP {
           return {
             content: [{
               type: "text",
-              text: `连接成功!\n\n${this.formatConnectionInfo(connection)}`
+              text: `Connection successful!\n\n${this.formatConnectionInfo(connection)}`
             }]
           };
         } catch (error) {
           return {
             content: [{
               type: "text",
-              text: `连接失败: ${error instanceof Error ? error.message : String(error)}`
+              text: `Connection failed: ${error instanceof Error ? error.message : String(error)}`
             }],
             isError: true
           };
@@ -251,7 +251,7 @@ export class SshMCP {
             return {
               content: [{
                 type: "text",
-                text: `错误: 连接 ${connectionId} 不存在`
+                text: `Error: Connection ${connectionId} does not exist`
               }],
               isError: true
             };
@@ -271,14 +271,14 @@ export class SshMCP {
             return {
               content: [{
                 type: "text",
-                text: `已成功断开连接 ${connection.name || connectionId}`
+                text: `Successfully disconnected from ${connection.name || connectionId}`
               }]
             };
           } else {
             return {
               content: [{
                 type: "text",
-                text: `断开连接失败`
+                text: `Failed to disconnect`
               }],
               isError: true
             };
@@ -287,7 +287,7 @@ export class SshMCP {
           return {
             content: [{
               type: "text",
-              text: `断开连接时出错: ${error instanceof Error ? error.message : String(error)}`
+              text: `Error disconnecting: ${error instanceof Error ? error.message : String(error)}`
             }],
             isError: true
           };
@@ -308,7 +308,7 @@ export class SshMCP {
             return {
               content: [{
                 type: "text",
-                text: "当前没有保存的连接"
+                text: "No saved connections"
               }]
             };
           }
@@ -320,14 +320,14 @@ export class SshMCP {
           return {
             content: [{
               type: "text",
-              text: `已保存的连接:\n\n${formattedConnections}`
+              text: `Saved connections:\n\n${formattedConnections}`
             }]
           };
         } catch (error) {
           return {
             content: [{
               type: "text",
-              text: `获取连接列表出错: ${error instanceof Error ? error.message : String(error)}`
+              text: `Error getting connection list: ${error instanceof Error ? error.message : String(error)}`
             }],
             isError: true
           };
@@ -350,7 +350,7 @@ export class SshMCP {
             return {
               content: [{
                 type: "text",
-                text: `错误: 连接 ${connectionId} 不存在`
+                text: `Error: Connection ${connectionId} does not exist`
               }],
               isError: true
             };
@@ -366,7 +366,7 @@ export class SshMCP {
           return {
             content: [{
               type: "text",
-              text: `获取连接详情出错: ${error instanceof Error ? error.message : String(error)}`
+              text: `Error getting connection details: ${error instanceof Error ? error.message : String(error)}`
             }],
             isError: true
           };
@@ -389,7 +389,7 @@ export class SshMCP {
             return {
               content: [{
                 type: "text",
-                text: `错误: 连接 ${connectionId} 不存在`
+                text: `Error: Connection ${connectionId} does not exist`
               }],
               isError: true
             };
@@ -411,14 +411,14 @@ export class SshMCP {
             return {
               content: [{
                 type: "text",
-                text: `已成功删除连接 "${name}"`
+                text: `Successfully deleted connection "${name}"`
               }]
             };
           } else {
             return {
               content: [{
                 type: "text",
-                text: `删除连接失败`
+                text: `Failed to delete connection`
               }],
               isError: true
             };
@@ -427,7 +427,7 @@ export class SshMCP {
           return {
             content: [{
               type: "text",
-              text: `删除连接时出错: ${error instanceof Error ? error.message : String(error)}`
+              text: `Error deleting connection: ${error instanceof Error ? error.message : String(error)}`
             }],
             isError: true
           };
@@ -547,7 +547,7 @@ export class SshMCP {
             return {
               content: [{
                 type: "text",
-                text: `错误: 连接 ${connectionId} 不存在`
+                text: `Error: Connection ${connectionId} does not exist`
               }],
               isError: true
             };
@@ -557,7 +557,7 @@ export class SshMCP {
             return {
               content: [{
                 type: "text",
-                text: `错误: 连接 ${connection.name || connectionId} 未连接`
+                text: `Error: Connection ${connection.name || connectionId} is not connected`
               }],
               isError: true
             };
@@ -1047,14 +1047,14 @@ export class SshMCP {
           return {
             content: [{
               type: "text",
-              text: output || '命令执行成功，无输出'
+              text: output || 'Command executed successfully, no output'
             }]
           };
         } catch (error) {
           return {
             content: [{
               type: "text",
-              text: `执行命令时出错: ${error instanceof Error ? error.message : String(error)}`
+              text: `Error executing command: ${error instanceof Error ? error.message : String(error)}`
             }],
             isError: true
           };
@@ -1080,7 +1080,7 @@ export class SshMCP {
             return {
               content: [{
                 type: "text",
-                text: `错误: 连接 ${connectionId} 不存在`
+                text: `Error: Connection ${connectionId} does not exist`
               }],
               isError: true
             };
@@ -1090,7 +1090,7 @@ export class SshMCP {
             return {
               content: [{
                 type: "text",
-                text: `错误: 连接 ${connection.name || connectionId} 未连接`
+                text: `Error: Connection ${connection.name || connectionId} is not connected`
               }],
               isError: true
             };
@@ -1138,14 +1138,14 @@ export class SshMCP {
           return {
             content: [{
               type: "text",
-              text: `已在后台启动命令: ${command}\n间隔: ${interval / 1000}秒\n连接: ${connection.name || connectionId}\n\n使用 stopBackground 工具可停止此后台任务。`
+              text: `Started command in background: ${command}\nInterval: ${interval / 1000}s\nConnection: ${connection.name || connectionId}\n\nUse stopBackground tool to stop this background task.`
             }]
           };
         } catch (error) {
           return {
             content: [{
               type: "text",
-              text: `设置后台任务时出错: ${error instanceof Error ? error.message : String(error)}`
+              text: `Error setting up background task: ${error instanceof Error ? error.message : String(error)}`
             }],
             isError: true
           };
@@ -1168,7 +1168,7 @@ export class SshMCP {
             return {
               content: [{
                 type: "text",
-                text: `错误: 连接 ${connectionId} 不存在`
+                text: `Error: Connection ${connectionId} does not exist`
               }],
               isError: true
             };
@@ -1178,7 +1178,7 @@ export class SshMCP {
             return {
               content: [{
                 type: "text",
-                text: `连接 ${connection.name || connectionId} 没有正在运行的后台任务`
+                text: `Connection ${connection.name || connectionId} has no running background tasks`
               }]
             };
           }
@@ -1189,14 +1189,14 @@ export class SshMCP {
           return {
             content: [{
               type: "text",
-              text: `已停止连接 ${connection.name || connectionId} 的后台任务`
+              text: `Stopped background tasks for connection ${connection.name || connectionId}`
             }]
           };
         } catch (error) {
           return {
             content: [{
               type: "text",
-              text: `停止后台任务时出错: ${error instanceof Error ? error.message : String(error)}`
+              text: `Error stopping background task: ${error instanceof Error ? error.message : String(error)}`
             }],
             isError: true
           };
@@ -1219,7 +1219,7 @@ export class SshMCP {
             return {
               content: [{
                 type: "text",
-                text: `错误: 连接 ${connectionId} 不存在`
+                text: `Error: Connection ${connectionId} does not exist`
               }],
               isError: true
             };
@@ -1229,7 +1229,7 @@ export class SshMCP {
             return {
               content: [{
                 type: "text",
-                text: `错误: 连接 ${connection.name || connectionId} 未连接`
+                text: `Error: Connection ${connection.name || connectionId} is not connected`
               }],
               isError: true
             };
@@ -1251,7 +1251,7 @@ export class SshMCP {
           return {
             content: [{
               type: "text",
-              text: `获取当前目录时出错: ${error instanceof Error ? error.message : String(error)}`
+              text: `Error getting current directory: ${error instanceof Error ? error.message : String(error)}`
             }],
             isError: true
           };
@@ -1281,7 +1281,7 @@ export class SshMCP {
             return {
               content: [{
                 type: "text",
-                text: `错误: 连接 ${connectionId} 不存在`
+                text: `Error: Connection ${connectionId} does not exist`
               }],
               isError: true
             };
@@ -1291,7 +1291,7 @@ export class SshMCP {
             return {
               content: [{
                 type: "text",
-                text: `错误: 连接 ${connection.name || connectionId} 未连接`
+                text: `Error: Connection ${connection.name || connectionId} is not connected`
               }],
               isError: true
             };
@@ -1302,7 +1302,7 @@ export class SshMCP {
             return {
               content: [{
                 type: "text",
-                text: `错误: 本地文件 "${localPath}" 不存在`
+                text: `Error: Local file "${localPath}" does not exist`
               }],
               isError: true
             };
@@ -1336,7 +1336,7 @@ export class SshMCP {
               return {
                 content: [{
                   type: "text",
-                  text: `文件上传失败: ${result.error || '未知错误'}`
+                  text: `File upload failed: ${result.error || 'Unknown error'}`
                 }],
                 isError: true,
                 transferId
@@ -1348,7 +1348,7 @@ export class SshMCP {
             return {
               content: [{
                 type: "text",
-                text: `文件 "${fileName}" 上传成功\n本地路径: ${localPath}\n远程路径: ${remotePath}`
+                text: `File "${fileName}" uploaded successfully\nLocal path: ${localPath}\nRemote path: ${remotePath}`
               }],
               transferId
             };
@@ -1360,7 +1360,7 @@ export class SshMCP {
           return {
             content: [{
               type: "text",
-              text: `上传文件时出错: ${error instanceof Error ? error.message : String(error)}`
+              text: `Error uploading file: ${error instanceof Error ? error.message : String(error)}`
             }],
             isError: true
           };
@@ -1385,7 +1385,7 @@ export class SshMCP {
             return {
               content: [{
                 type: "text",
-                text: `错误: 连接 ${connectionId} 不存在`
+                text: `Error: Connection ${connectionId} does not exist`
               }],
               isError: true
             };
@@ -1395,7 +1395,7 @@ export class SshMCP {
             return {
               content: [{
                 type: "text",
-                text: `错误: 连接 ${connection.name || connectionId} 未连接`
+                text: `Error: Connection ${connection.name || connectionId} is not connected`
               }],
               isError: true
             };
@@ -1442,7 +1442,7 @@ export class SshMCP {
               return {
                 content: [{
                   type: "text",
-                  text: `文件下载失败: ${result.error || '未知错误'}`
+                  text: `File download failed: ${result.error || 'Unknown error'}`
                 }],
                 isError: true,
                 transferId
@@ -1454,7 +1454,7 @@ export class SshMCP {
             return {
               content: [{
                 type: "text",
-                text: `文件 "${fileName}" 下载成功\n远程路径: ${remotePath}\n本地路径: ${savePath}`
+                text: `File "${fileName}" downloaded successfully\nRemote path: ${remotePath}\nLocal path: ${savePath}`
               }],
               transferId
             };
@@ -1466,7 +1466,7 @@ export class SshMCP {
           return {
             content: [{
               type: "text",
-              text: `下载文件时出错: ${error instanceof Error ? error.message : String(error)}`
+              text: `Error downloading file: ${error instanceof Error ? error.message : String(error)}`
             }],
             isError: true
           };
@@ -1493,7 +1493,7 @@ export class SshMCP {
             return {
               content: [{
                 type: "text",
-                text: `错误: 连接 ${connectionId} 不存在`
+                text: `Error: Connection ${connectionId} does not exist`
               }],
               isError: true
             };
@@ -1503,7 +1503,7 @@ export class SshMCP {
             return {
               content: [{
                 type: "text",
-                text: `错误: 连接 ${connection.name || connectionId} 未连接`
+                text: `Error: Connection ${connection.name || connectionId} is not connected`
               }],
               isError: true
             };
@@ -1515,7 +1515,7 @@ export class SshMCP {
             return {
               content: [{
                 type: "text",
-                text: `错误: 以下本地文件不存在:\n${missingFiles.map(f => f.localPath).join('\n')}`
+                text: `Error: The following local files do not exist:\n${missingFiles.map(f => f.localPath).join('\n')}`
               }],
               isError: true
             };
@@ -1535,7 +1535,7 @@ export class SshMCP {
             return {
               content: [{
                 type: "text",
-                text: `没有文件被上传`
+                text: `No files were uploaded`
               }],
               isError: true
             };
@@ -1586,7 +1586,7 @@ export class SshMCP {
             return {
               content: [{
                 type: "text",
-                text: `批量上传完成\n成功: ${successCount}个文件\n失败: ${failedCount}个文件`
+                text: `Batch upload completed\nSuccessful: ${successCount} files\nFailed: ${failedCount} files`
               }],
               transferIds
             };
@@ -1598,7 +1598,7 @@ export class SshMCP {
           return {
             content: [{
               type: "text",
-              text: `批量上传文件时出错: ${error instanceof Error ? error.message : String(error)}`
+              text: `Error during batch upload: ${error instanceof Error ? error.message : String(error)}`
             }],
             isError: true
           };
@@ -1625,7 +1625,7 @@ export class SshMCP {
             return {
               content: [{
                 type: "text",
-                text: `错误: 连接 ${connectionId} 不存在`
+                text: `Error: Connection ${connectionId} does not exist`
               }],
               isError: true
             };
@@ -1635,7 +1635,7 @@ export class SshMCP {
             return {
               content: [{
                 type: "text",
-                text: `错误: 连接 ${connection.name || connectionId} 未连接`
+                text: `Error: Connection ${connection.name || connectionId} is not connected`
               }],
               isError: true
             };
@@ -1667,7 +1667,7 @@ export class SshMCP {
             return {
               content: [{
                 type: "text",
-                text: `错误: 没有有效的文件传输项`
+                text: `Error: No valid file transfer items`
               }],
               isError: true
             };
@@ -1687,7 +1687,7 @@ export class SshMCP {
             return {
               content: [{
                 type: "text",
-                text: `没有文件被下载`
+                text: `No files were downloaded`
               }],
               isError: true
             };
@@ -1738,7 +1738,7 @@ export class SshMCP {
             return {
               content: [{
                 type: "text",
-                text: `批量下载完成\n成功: ${successCount}个文件\n失败: ${failedCount}个文件`
+                text: `Batch download completed\nSuccessful: ${successCount} files\nFailed: ${failedCount} files`
               }],
               transferIds
             };
@@ -1750,7 +1750,7 @@ export class SshMCP {
           return {
             content: [{
               type: "text",
-              text: `批量下载文件时出错: ${error instanceof Error ? error.message : String(error)}`
+              text: `Error during batch download: ${error instanceof Error ? error.message : String(error)}`
             }],
             isError: true
           };
@@ -1773,7 +1773,7 @@ export class SshMCP {
             return {
               content: [{
                 type: "text",
-                text: `错误: 传输 ${transferId} 不存在`
+                text: `Error: Transfer ${transferId} does not exist`
               }],
               isError: true
             };
@@ -1840,7 +1840,7 @@ export class SshMCP {
           return {
             content: [{
               type: "text",
-              text: `获取文件传输状态时出错: ${error instanceof Error ? error.message : String(error)}`
+              text: `Error getting file transfer status: ${error instanceof Error ? error.message : String(error)}`
             }],
             isError: true
           };
@@ -1861,12 +1861,12 @@ export class SshMCP {
             return {
               content: [{
                 type: "text",
-                text: "没有文件传输记录"
+                text: "No file transfer records"
               }]
             };
           }
           
-          let output = `文件传输记录 (${transfers.length}):\n\n`;
+          let output = `File transfer records (${transfers.length}):\n\n`;
           
           for (const transfer of transfers) {
             const fileName = transfer.direction === 'upload' 
@@ -1921,7 +1921,7 @@ export class SshMCP {
           return {
             content: [{
               type: "text",
-              text: `获取文件传输列表时出错: ${error instanceof Error ? error.message : String(error)}`
+              text: `Error getting file transfer list: ${error instanceof Error ? error.message : String(error)}`
             }],
             isError: true
           };
@@ -1945,7 +1945,7 @@ export class SshMCP {
             return {
               content: [{
                 type: "text",
-                text: "当前没有活跃的会话"
+                text: "No active sessions"
               }]
             };
           }
@@ -1979,7 +1979,7 @@ export class SshMCP {
           return {
             content: [{
               type: "text",
-              text: `获取活跃会话时出错: ${error instanceof Error ? error.message : String(error)}`
+              text: `Error getting active sessions: ${error instanceof Error ? error.message : String(error)}`
             }],
             isError: true
           };
@@ -1998,7 +1998,7 @@ export class SshMCP {
             return {
               content: [{
                 type: "text",
-                text: "当前没有运行中的后台任务"
+                text: "No running background tasks"
               }]
             };
           }
@@ -2027,7 +2027,7 @@ export class SshMCP {
           return {
             content: [{
               type: "text",
-              text: `获取后台任务时出错: ${error instanceof Error ? error.message : String(error)}`
+              text: `Error getting background tasks: ${error instanceof Error ? error.message : String(error)}`
             }],
             isError: true
           };
@@ -2048,7 +2048,7 @@ export class SshMCP {
             return {
               content: [{
                 type: "text",
-                text: "当前没有运行中的后台任务"
+                text: "No running background tasks"
               }]
             };
           }
@@ -2061,14 +2061,14 @@ export class SshMCP {
           return {
             content: [{
               type: "text",
-              text: `已停止所有 ${count} 个后台任务`
+              text: `Stopped all ${count} background tasks`
             }]
           };
         } catch (error) {
           return {
             content: [{
               type: "text",
-              text: `停止所有后台任务时出错: ${error instanceof Error ? error.message : String(error)}`
+              text: `Error stopping all background tasks: ${error instanceof Error ? error.message : String(error)}`
             }],
             isError: true
           };
@@ -2125,7 +2125,7 @@ export class SshMCP {
           return {
             content: [{
               type: "text",
-              text: `已创建终端会话 ${sessionId}`
+              text: `Created terminal session ${sessionId}`
             }],
             sessionId
           };
@@ -2135,7 +2135,7 @@ export class SshMCP {
           return {
             content: [{
               type: "text",
-              text: `创建终端会话失败: ${errorMessage}`
+              text: `Failed to create terminal session: ${errorMessage}`
             }],
             isError: true
           };
@@ -2159,7 +2159,7 @@ export class SshMCP {
           return {
             content: [{
               type: "text",
-              text: success ? `数据已发送到终端 ${sessionId}` : `数据发送失败`
+              text: success ? `Data sent to terminal ${sessionId}` : `Failed to send data`
             }],
             success
           };
@@ -2167,7 +2167,7 @@ export class SshMCP {
           return {
             content: [{
               type: "text",
-              text: `向终端写入数据时出错: ${error instanceof Error ? error.message : String(error)}`
+              text: `Error writing data to terminal: ${error instanceof Error ? error.message : String(error)}`
             }],
             isError: true
           };
@@ -2199,7 +2199,7 @@ export class SshMCP {
             return {
               content: [{
                 type: "text",
-                text: `错误: 连接 ${connectionId} 不存在`
+                text: `Error: Connection ${connectionId} does not exist`
               }],
               isError: true
             };
@@ -2209,7 +2209,7 @@ export class SshMCP {
             return {
               content: [{
                 type: "text",
-                text: `错误: 连接 ${connection.name || connectionId} 未连接`
+                text: `Error: Connection ${connection.name || connectionId} is not connected`
               }],
               isError: true
             };
@@ -2227,7 +2227,7 @@ export class SshMCP {
           return {
             content: [{
               type: "text",
-              text: `隧道已创建\n本地端口: ${localPort}\n远程: ${remoteHost}:${remotePort}\n隧道ID: ${tunnelId}`
+              text: `Tunnel created\nLocal port: ${localPort}\nRemote: ${remoteHost}:${remotePort}\nTunnel ID: ${tunnelId}`
             }],
             tunnelId
           };
@@ -2235,7 +2235,7 @@ export class SshMCP {
           return {
             content: [{
               type: "text",
-              text: `创建隧道时出错: ${error instanceof Error ? error.message : String(error)}`
+              text: `Error creating tunnel: ${error instanceof Error ? error.message : String(error)}`
             }],
             isError: true
           };
@@ -2258,14 +2258,14 @@ export class SshMCP {
             return {
               content: [{
                 type: "text",
-                text: `隧道 ${tunnelId} 已关闭`
+                text: `Tunnel ${tunnelId} closed`
               }]
             };
           } else {
             return {
               content: [{
                 type: "text",
-                text: `关闭隧道 ${tunnelId} 失败`
+                text: `Failed to close tunnel ${tunnelId}`
               }],
               isError: true
             };
@@ -2274,7 +2274,7 @@ export class SshMCP {
           return {
             content: [{
               type: "text",
-              text: `关闭隧道时出错: ${error instanceof Error ? error.message : String(error)}`
+              text: `Error closing tunnel: ${error instanceof Error ? error.message : String(error)}`
             }],
             isError: true
           };
@@ -2295,7 +2295,7 @@ export class SshMCP {
             return {
               content: [{
                 type: "text",
-                text: "当前没有活跃的隧道"
+                text: "No active tunnels"
               }]
             };
           }
@@ -2330,7 +2330,7 @@ export class SshMCP {
           return {
             content: [{
               type: "text",
-              text: `获取隧道列表时出错: ${error instanceof Error ? error.message : String(error)}`
+              text: `Error getting tunnel list: ${error instanceof Error ? error.message : String(error)}`
             }],
             isError: true
           };

@@ -4,50 +4,50 @@ import { SshMCP } from './tools/ssh.js';
 import { config } from 'dotenv';
 import { ProcessManager } from './process-manager.js';
 
-// 加载环境变量
+// Load environment variables
 config();
 
-// 主函数
+// Main function
 async function main() {
-  // 初始化进程管理器
+  // Initialize process manager
   const processManager = new ProcessManager();
   if (!await processManager.checkAndCreateLock()) {
-    console.error('无法创建进程锁，程序退出');
+    console.error('Cannot create process lock, exiting');
     process.exit(1);
   }
 
-  // 实例化SSH MCP
+  // Instantiate SSH MCP
   const sshMCP = new SshMCP();
 
-  // 处理进程退出
+  // Handle process exit
   process.on('SIGINT', async () => {
-    console.log('正在关闭SSH MCP服务...');
+    console.log('Shutting down SSH MCP service...');
     await sshMCP.close();
     process.exit(0);
   });
 
   process.on('SIGTERM', async () => {
-    console.log('正在关闭SSH MCP服务...');
+    console.log('Shutting down SSH MCP service...');
     await sshMCP.close();
     process.exit(0);
   });
 
-  // 处理未捕获的异常，避免崩溃
+  // Handle uncaught exceptions to prevent crashes
   process.on('uncaughtException', (err) => {
-    console.error('未捕获的异常:', err);
-    // 不退出进程，保持SSH服务运行
+    console.error('Uncaught exception:', err);
+    // Don't exit process, keep SSH service running
   });
 
   process.on('unhandledRejection', (reason, promise) => {
-    console.error('未处理的Promise拒绝:', reason);
-    // 不退出进程，保持SSH服务运行
+    console.error('Unhandled Promise rejection:', reason);
+    // Don't exit process, keep SSH service running
   });
 
-  console.log('SSH MCP服务已启动');
+  console.log('SSH MCP service started');
 }
 
-// 启动应用
+// Start application
 main().catch(error => {
-  console.error('启动失败:', error);
+  console.error('Startup failed:', error);
   process.exit(1);
 }); 

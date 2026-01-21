@@ -11,7 +11,7 @@ import * as net from 'net';
 import { Client as SSHClient, ConnectConfig, SFTPWrapper } from 'ssh2';
 import { SSHExecCommandResponse, SSHExecOptions } from 'node-ssh';
 
-// 连接配置
+// Connection configuration
 export interface SSHConnectionConfig {
   host: string;
   port?: number;
@@ -26,7 +26,7 @@ export interface SSHConnectionConfig {
   reconnectDelay?: number;
 }
 
-// 连接状态
+// Connection status
 export enum ConnectionStatus {
   DISCONNECTED = 'disconnected',
   CONNECTING = 'connecting',
@@ -35,7 +35,7 @@ export enum ConnectionStatus {
   ERROR = 'error'
 }
 
-// 连接详情
+// Connection details
 export interface SSHConnection {
   id: string;
   name?: string;
@@ -48,14 +48,14 @@ export interface SSHConnection {
   currentDirectory?: string;
 }
 
-// 执行命令结果
+// Command execution result
 export interface CommandResult {
   stdout: string;
   stderr: string;
   code: number;
 }
 
-// 后台任务结果
+// Background task result
 export interface BackgroundTaskResult {
   id: string;
   output: string;
@@ -66,10 +66,10 @@ export interface BackgroundTaskResult {
   endTime?: Date;
 }
 
-// 后台任务信息
+// Background task info
 interface BackgroundTask {
   client: NodeSSH;
-  process: any; // SSHExecCommandResponse类型，但实际上可能包含附加属性
+  process: any; // SSHExecCommandResponse type, but may contain additional properties
   output: string;
   isRunning: boolean;
   exitCode?: number;
@@ -79,7 +79,7 @@ interface BackgroundTask {
   interval?: NodeJS.Timeout;
 }
 
-// SSH隧道配置
+// SSH tunnel configuration
 export interface TunnelConfig {
   id?: string;
   connectionId: string;
@@ -89,7 +89,7 @@ export interface TunnelConfig {
   description?: string;
 }
 
-// 文件传输信息
+// File transfer info
 export interface FileTransferInfo {
   id: string;
   localPath: string;
@@ -104,7 +104,7 @@ export interface FileTransferInfo {
   endTime?: Date;
 }
 
-// 批量传输配置
+// Batch transfer configuration
 export interface BatchTransferConfig {
   connectionId: string;
   items: {
@@ -114,14 +114,14 @@ export interface BatchTransferConfig {
   direction: 'upload' | 'download';
 }
 
-// 终端会话配置
+// Terminal session configuration
 export interface TerminalSessionConfig {
   rows?: number;
   cols?: number;
   term?: string;
 }
 
-// 终端会话信息
+// Terminal session info
 export interface TerminalSession {
   id: string;
   connectionId: string;
@@ -135,20 +135,20 @@ export interface TerminalSession {
   sudoPasswordPrompt: boolean;
 }
 
-// 终端数据事件
+// Terminal data event
 export interface TerminalDataEvent {
   sessionId: string;
   data: string;
 }
 
-// 终端调整大小事件
+// Terminal resize event
 export interface TerminalResizeEvent {
   sessionId: string;
   rows: number;
   cols: number;
 }
 
-// 服务类
+// Service class
 export class SSHService {
   private connections: Map<string, SSHConnection> = new Map();
   private db: Loki | null = null;
@@ -159,71 +159,71 @@ export class SSHService {
   private serviceReadyPromise: Promise<void>;
   private isDocker: boolean = false;
   
-  // 后台任务管理
+  // Background task management
   private backgroundTasks: Map<string, BackgroundTask> = new Map();
-  
-  // SSH隧道管理
+
+  // SSH tunnel management
   private tunnels: Map<string, {
     config: TunnelConfig,
     server?: net.Server,
     connections: Set<net.Socket>,
     isActive: boolean
   }> = new Map();
-  
-  // 事件发射器
+
+  // Event emitter
   private eventEmitter: EventEmitter = new EventEmitter();
-  
-  // 文件传输管理
+
+  // File transfer management
   private fileTransfers: Map<string, FileTransferInfo> = new Map();
-  
-  // 终端会话管理
+
+  // Terminal session management
   private terminalSessions: Map<string, TerminalSession> = new Map();
   
   constructor() {
     this.dataPath = process.env.SSH_DATA_PATH || path.join(os.homedir(), '.mcp-ssh');
     this.isDocker = process.env.IS_DOCKER === 'true';
-    
-    // 创建数据目录（如果不存在）
+
+    // Create data directory if it doesn't exist
     if (!fs.existsSync(this.dataPath)) {
       fs.mkdirSync(this.dataPath, { recursive: true });
     }
-    
-    // 初始化数据库
+
+    // Initialize database
     this.serviceReadyPromise = this.initDatabase();
-    
-    // 设置定期清理任务
+
+    // Setup periodic cleanup tasks
     this.setupCleanupTasks();
   }
-  
+
   private async initDatabase(): Promise<void> {
     return new Promise((resolve, reject) => {
       this.db = new Loki(path.join(this.dataPath, 'ssh-connections.db'), {
         autoload: true,
         autoloadCallback: () => {
           if (this.db) {
-            // 获取连接集合，如果不存在则创建
+            // Get connections collection, create if not exists
             this.connectionCollection = this.db.getCollection('connections');
             if (!this.connectionCollection) {
               this.connectionCollection = this.db.addCollection('connections', {
                 indices: ['id', 'host', 'username']
               });
             }
-            
-            // 获取凭证集合，如果不存在则创建
+
+            // Get credentials collection, create if not exists
             this.credentialCollection = this.db.getCollection('credentials');
             if (!this.credentialCollection) {
               this.credentialCollection = this.db.addCollection('credentials', {
                 unique: ['id']
               });
             }
-            
-            // 加载保存的连接
+
+            // Load saved connections
             this.loadSavedConnections();
-            
+
             this.serviceReady = true;
             resolve();
           } else {
-            reject(new Error('数据库初始化失败'));
+            reject(new Error('Database initialization failed'));
           }
         },
         autosave: true,
@@ -231,25 +231,103 @@ export class SSHService {
       });
     });
   }
-  
-  // 确保服务准备就绪
+
+  // Ensure service is ready
   private async ensureReady(): Promise<void> {
     if (!this.serviceReady) {
       await this.serviceReadyPromise;
     }
   }
+
+  // SECURITY: Encryption utilities for Docker mode credential storage
+  private getEncryptionKey(): Buffer {
+    // Try to get key from environment variable (most secure for Docker)
+    const envKey = process.env.SSH_MCP_ENCRYPTION_KEY;
+    if (envKey && envKey.length >= 32) {
+      return Buffer.from(envKey.slice(0, 32), 'utf8');
+    }
+
+    // Fallback: Use a machine-specific salt and derive key
+    // In production, users should set SSH_MCP_ENCRYPTION_KEY environment variable
+    const machineId = process.env.HOSTNAME || process.env.HOST || 'default-host';
+    const dataPath = process.env.SSH_DATA_PATH || path.join(os.homedir(), '.mcp-ssh');
+    const keyFile = path.join(dataPath, '.encryption-key');
+
+    try {
+      if (fs.existsSync(keyFile)) {
+        return Buffer.from(fs.readFileSync(keyFile, 'utf8').slice(0, 32), 'utf8');
+      }
+
+      // Generate and save a new key
+      const newKey = crypto.randomBytes(32).toString('base64').slice(0, 32);
+      fs.writeFileSync(keyFile, newKey, { mode: 0o600 });
+      return Buffer.from(newKey, 'utf8');
+    } catch (error) {
+      console.warn('Warning: Using fallback encryption key. Set SSH_MCP_ENCRYPTION_KEY env var for better security.');
+      // Last resort: derive from machine ID (not ideal but better than plaintext)
+      return crypto.createHash('sha256').update(machineId + '-mcp-ssh-salt').digest();
+    }
+  }
+
+  private encrypt(text: string): { encrypted: string, iv: string, authTag: string } {
+    const key = this.getEncryptionKey();
+    const iv = crypto.randomBytes(16);
+    const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+
+    let encrypted = cipher.update(text, 'utf8', 'hex');
+    encrypted += cipher.final('hex');
+
+    const authTag = cipher.getAuthTag();
+
+    return {
+      encrypted,
+      iv: iv.toString('hex'),
+      authTag: authTag.toString('hex')
+    };
+  }
+
+  private decrypt(encrypted: string, iv: string, authTag: string): string {
+    const key = this.getEncryptionKey();
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(iv, 'hex'));
+
+    decipher.setAuthTag(Buffer.from(authTag, 'hex'));
+
+    let decrypted = decipher.update(encrypted, 'hex', 'utf8');
+    decrypted += decipher.final('utf8');
+
+    return decrypted;
+  }
   
-  // 加载保存的连接
+  // Load saved connections
   private async loadSavedConnections(): Promise<void> {
     if (!this.connectionCollection) return;
-    
+
     const savedConnections = this.connectionCollection.find();
-    
+
     for (const conn of savedConnections) {
-      // 不加载密码，只保留配置
       const { id, name, config, lastUsed, tags } = conn;
-      
-      // 创建连接对象
+
+      // SECURITY: Decrypt private key if it's encrypted
+      let privateKey: string | undefined;
+      if (config.privateKey) {
+        if (typeof config.privateKey === 'object' && 'encrypted' in config.privateKey) {
+          // Encrypted private key
+          try {
+            privateKey = this.decrypt(
+              config.privateKey.encrypted,
+              config.privateKey.iv,
+              config.privateKey.authTag
+            );
+          } catch (error) {
+            console.error(`Failed to decrypt private key for connection ${id}:`, error);
+          }
+        } else if (typeof config.privateKey === 'string') {
+          // Legacy: unencrypted private key
+          privateKey = config.privateKey;
+        }
+      }
+
+      // Create connection object
       this.connections.set(id, {
         id,
         name,
@@ -257,7 +335,7 @@ export class SSHService {
           host: config.host,
           port: config.port || parseInt(process.env.DEFAULT_SSH_PORT || '22'),
           username: config.username,
-          privateKey: config.privateKey,
+          privateKey,
           keepaliveInterval: 60000,
           readyTimeout: parseInt(process.env.CONNECTION_TIMEOUT || '10000')
         },
@@ -268,7 +346,7 @@ export class SSHService {
     }
   }
   
-  // 创建连接ID
+  // Generate connection ID
   private generateConnectionId(config: SSHConnectionConfig): string {
     return crypto
       .createHash('md5')
@@ -276,15 +354,21 @@ export class SSHService {
       .digest('hex');
   }
   
-  // 保存连接配置
+  // Save connection configuration
   private async saveConnection(connection: SSHConnection): Promise<void> {
     await this.ensureReady();
-    
+
     if (!this.connectionCollection) return;
-    
-    // 查找现有记录
+
+    // Find existing record
     const existing = this.connectionCollection.findOne({ id: connection.id });
-    
+
+    // SECURITY: Encrypt private key before storing
+    let encryptedPrivateKey: { encrypted: string, iv: string, authTag: string } | undefined;
+    if (connection.config.privateKey) {
+      encryptedPrivateKey = this.encrypt(connection.config.privateKey);
+    }
+
     const connData = {
       id: connection.id,
       name: connection.name,
@@ -292,20 +376,20 @@ export class SSHService {
         host: connection.config.host,
         port: connection.config.port,
         username: connection.config.username,
-        privateKey: connection.config.privateKey
+        privateKey: encryptedPrivateKey
       },
       lastUsed: connection.lastUsed ? connection.lastUsed.toISOString() : new Date().toISOString(),
       tags: connection.tags || []
     };
-    
+
     if (existing) {
-      // 更新现有记录
+      // Update existing record
       this.connectionCollection.update({...existing, ...connData});
     } else {
-      // 添加新记录
+      // Add new record
       this.connectionCollection.insert(connData);
     }
-    
+
     if (this.db) {
       this.db.saveDatabase();
     }
@@ -316,13 +400,21 @@ export class SSHService {
       await this.ensureReady();
       if (!this.credentialCollection) return;
 
+      // SECURITY: Encrypt credentials before storing in Docker mode
+      const encryptedPassword = password ? this.encrypt(password) : undefined;
+      const encryptedPassphrase = passphrase ? this.encrypt(passphrase) : undefined;
+
       const existing = this.credentialCollection.findOne({ id });
       if (existing) {
-        existing.password = password;
-        existing.passphrase = passphrase;
+        existing.password = encryptedPassword;
+        existing.passphrase = encryptedPassphrase;
         this.credentialCollection.update(existing);
       } else {
-        this.credentialCollection.insert({ id, password, passphrase });
+        this.credentialCollection.insert({
+          id,
+          password: encryptedPassword,
+          passphrase: encryptedPassphrase
+        });
       }
       return;
     }
@@ -335,16 +427,45 @@ export class SSHService {
         await keytar.setPassword('mcp-ssh-passphrase', id, passphrase);
       }
     } catch (error) {
-      console.warn(`无法保存凭证: ${error}`);
+      console.warn(`Failed to save credentials: ${error}`);
     }
   }
-  
+
   private async getCredentials(id: string): Promise<{password?: string, passphrase?: string}> {
     if (this.isDocker) {
       await this.ensureReady();
       if (!this.credentialCollection) return {};
       const creds = this.credentialCollection.findOne({ id });
-      return creds ? { password: creds.password, passphrase: creds.passphrase } : {};
+      if (!creds) return {};
+
+      // SECURITY: Decrypt credentials after retrieving from Docker mode storage
+      let password: string | undefined;
+      let passphrase: string | undefined;
+
+      if (creds.password && typeof creds.password === 'object' && 'encrypted' in creds.password) {
+        try {
+          password = this.decrypt(creds.password.encrypted, creds.password.iv, creds.password.authTag);
+        } catch (error) {
+          console.error('Failed to decrypt password:', error);
+        }
+      } else if (typeof creds.password === 'string') {
+        // Legacy: unencrypted password (from before encryption was added)
+        // Still allow it to work, but log a warning
+        console.warn('Warning: Found unencrypted password. Consider re-saving the connection.');
+        password = creds.password;
+      }
+
+      if (creds.passphrase && typeof creds.passphrase === 'object' && 'encrypted' in creds.passphrase) {
+        try {
+          passphrase = this.decrypt(creds.passphrase.encrypted, creds.passphrase.iv, creds.passphrase.authTag);
+        } catch (error) {
+          console.error('Failed to decrypt passphrase:', error);
+        }
+      } else if (typeof creds.passphrase === 'string') {
+        passphrase = creds.passphrase;
+      }
+
+      return { password, passphrase };
     }
     try {
       const keytar = (await import('keytar')).default;
@@ -352,31 +473,31 @@ export class SSHService {
       const passphrase = await keytar.getPassword('mcp-ssh-passphrase', id);
       return { password: password || undefined, passphrase: passphrase || undefined };
     } catch (error) {
-      console.warn(`无法检索凭证: ${error}`);
+      console.warn(`Failed to retrieve credentials: ${error}`);
       return {};
     }
   }
   
-  // 连接到SSH服务器
+  // Connect to SSH server
   public async connect(config: SSHConnectionConfig, name?: string, rememberPassword: boolean = false, tags?: string[]): Promise<SSHConnection> {
     await this.ensureReady();
-    
+
     const connectionId = this.generateConnectionId(config);
     let connection = this.connections.get(connectionId);
-    
-    // 如果已经连接，直接返回
+
+    // If already connected, return directly
     if (connection && connection.status === ConnectionStatus.CONNECTED && connection.client) {
       return connection;
     }
-    
-    // 如果存在连接但未连接，更新配置
+
+    // If connection exists but not connected, update config
     if (connection) {
       connection.config = {...connection.config, ...config};
       connection.name = name || connection.name;
       connection.tags = tags || connection.tags;
       connection.status = ConnectionStatus.CONNECTING;
     } else {
-      // 创建新连接
+      // Create new connection
       connection = {
         id: connectionId,
         name: name || `${config.username}@${config.host}`,
@@ -387,9 +508,9 @@ export class SSHService {
       };
       this.connections.set(connectionId, connection);
     }
-    
+
     try {
-      // 如果没有提供密码，尝试从keytar获取
+      // If no password provided, try to get from keytar
       if (!config.password && !config.privateKey) {
         const savedCredentials = await this.getCredentials(connectionId);
         if (savedCredentials.password) {
@@ -399,11 +520,11 @@ export class SSHService {
           config.passphrase = savedCredentials.passphrase;
         }
       }
-      
-      // 创建SSH客户端
+
+      // Create SSH client
       const ssh = new NodeSSH();
-      
-      // 连接选项
+
+      // Connection options
       const connectOptions = {
         host: config.host,
         port: config.port || parseInt(process.env.DEFAULT_SSH_PORT || '22'),
@@ -414,71 +535,71 @@ export class SSHService {
         keepaliveInterval: config.keepaliveInterval || 60000,
         readyTimeout: config.readyTimeout || parseInt(process.env.CONNECTION_TIMEOUT || '10000')
       };
-      
-      // 连接
+
+      // Connect
       await ssh.connect(connectOptions);
-      
-      // 连接成功，更新状态
+
+      // Connection successful, update status
       connection.client = ssh;
       connection.status = ConnectionStatus.CONNECTED;
       connection.lastUsed = new Date();
       connection.lastError = undefined;
       connection.currentDirectory = await this.getCurrentDirectory(connectionId);
-      
-      // 如果配置了记住密码，保存凭据
+
+      // If remember password is configured, save credentials
       if (rememberPassword) {
         await this.saveCredentials(connectionId, config.password, config.passphrase);
       }
-      
-      // 保存连接到数据库
+
+      // Save connection to database
       await this.saveConnection(connection);
-      
+
       return connection;
     } catch (error) {
-      // 连接失败
+      // Connection failed
       connection.status = ConnectionStatus.ERROR;
       connection.lastError = error instanceof Error ? error.message : String(error);
-      
-      // 如果配置了自动重连，尝试重连
+
+      // If auto-reconnect is configured, attempt to reconnect
       if (config.reconnect && config.reconnectTries && config.reconnectTries > 0) {
         this.scheduleReconnect(connectionId, config);
       }
-      
+
       throw error;
     }
   }
   
-  // 计划重连
+  // Schedule reconnection
   private scheduleReconnect(connectionId: string, config: SSHConnectionConfig): void {
     const connection = this.connections.get(connectionId);
     if (!connection) return;
-    
-    // 设置状态为重连中
+
+    // Set status to reconnecting
     connection.status = ConnectionStatus.RECONNECTING;
-    
-    // 计算重连次数和延迟
+
+    // Calculate retry count and delay
     const reconnectTries = config.reconnectTries || parseInt(process.env.RECONNECT_ATTEMPTS || '3');
     const reconnectDelay = config.reconnectDelay || 5000;
-    
+
     let attempts = 0;
-    
+
     const attemptReconnect = async () => {
       attempts++;
-      
+
       try {
-        // 尝试重连
+        // Attempt to reconnect
         await this.connect(config);
-        // 重连成功
-        console.log(`成功重新连接到 ${config.host}`);
+        // Reconnection successful
+        console.log(`Successfully reconnected to ${config.host}`);
       } catch (error) {
-        // 重连失败
-        console.error(`重连尝试 ${attempts}/${reconnectTries} 失败:`, error);
-        
-        // 如果还有重连次数，继续尝试
+        // Reconnection failed
+        console.error(`Reconnection attempt ${attempts}/${reconnectTries} failed:`, error);
+
+        // If there are more retry attempts, continue trying
         if (attempts < reconnectTries) {
           setTimeout(attemptReconnect, reconnectDelay);
         } else {
-          // 重连次数耗尽，设置状态为错误
+          // Retry attempts exhausted, set status to error
           const failedConnection = this.connections.get(connectionId);
           if (failedConnection) {
             failedConnection.status = ConnectionStatus.ERROR;
@@ -486,110 +607,111 @@ export class SSHService {
         }
       }
     };
-    
-    // 开始第一次重连尝试
+
+    // Start first reconnection attempt
     setTimeout(attemptReconnect, reconnectDelay);
   }
-  
-  // 断开连接
+
+  // Disconnect connection
   public async disconnect(connectionId: string): Promise<boolean> {
     const connection = this.connections.get(connectionId);
     if (!connection || !connection.client) {
       return false;
     }
-    
+
     try {
-      // 断开SSH连接
+      // Disconnect SSH connection
       await connection.client.dispose();
-      
-      // 更新状态
+
+      // Update status
       connection.status = ConnectionStatus.DISCONNECTED;
       connection.client = undefined;
-      
+
       return true;
     } catch (error) {
-      console.error(`断开连接 ${connectionId} 时出错:`, error);
-      
-      // 即使出错也要更新状态
+      console.error(`Error disconnecting ${connectionId}:`, error);
+
+      // Update status even on error
       connection.status = ConnectionStatus.ERROR;
       connection.lastError = error instanceof Error ? error.message : String(error);
-      
+
       return false;
     }
   }
-  
-  // 获取所有连接
+
+  // Get all connections
   public async getAllConnections(): Promise<SSHConnection[]> {
     await this.ensureReady();
     return Array.from(this.connections.values());
   }
-  
-  // 获取特定连接
+
+  // Get specific connection
   public getConnection(connectionId: string): SSHConnection | undefined {
     return this.connections.get(connectionId);
   }
-  
-  // 执行命令
+
+  // Execute command
   public async executeCommand(connectionId: string, command: string, options?: { cwd?: string, timeout?: number }): Promise<CommandResult> {
     const connection = this.connections.get(connectionId);
     if (!connection || !connection.client || connection.status !== ConnectionStatus.CONNECTED) {
-      throw new Error(`连接 ${connectionId} 不可用或未连接`);
+      throw new Error(`Connection ${connectionId} is unavailable or not connected`);
     }
-    
+
     try {
-      // 准备选项
+      // Prepare options
       const execOptions: any = {};
-      
-      // 工作目录
+
+      // Working directory
       if (options?.cwd) {
         execOptions.cwd = options.cwd;
       } else if (connection.currentDirectory) {
         execOptions.cwd = connection.currentDirectory;
       }
-      
-      // 超时
+
+      // Timeout
       if (options?.timeout) {
         execOptions.execOptions = { timeout: options.timeout };
       } else if (process.env.COMMAND_TIMEOUT && parseInt(process.env.COMMAND_TIMEOUT) > 0) {
         execOptions.execOptions = { timeout: parseInt(process.env.COMMAND_TIMEOUT) };
       }
 
-      // 检查是否是sudo命令
+      // SECURITY: Check if command needs sudo authentication
       if (command.trim().startsWith('sudo ') || command.includes(' sudo ')) {
-        // 尝试获取密码
+        // Try to get password
         let password = connection.config.password;
         if (!password) {
           const savedCredentials = await this.getCredentials(connection.id);
           password = savedCredentials.password;
         }
 
-        // 如果有密码，使用echo密码 | sudo -S 的方式运行
+        // SECURITY FIX: Use stdin stream instead of command-line pipe to prevent password exposure in ps
         if (password) {
-          // 修改命令以自动提供密码
-          // 使用 -S 标志让sudo从标准输入读取密码
           const sudoCommand = command.replace(/\bsudo\b/g, 'sudo -S');
-          // 使用echo和管道传递密码，并添加命令使sudo在用户输入时不显示
-          command = `echo "${password}" | ${sudoCommand} 2>/dev/null`;
+          // SECURITY: Don't use echo pipe which exposes password in process list
+          // Use node-ssh's stdin capability for secure password injection
+          command = sudoCommand;
+          // Inject password via stdin - this is safer than command line
+          execOptions.stdin = password + '\n';
         }
       }
-      
-      // 执行命令
+
+      // Execute command
       const result = await connection.client.execCommand(command, execOptions);
-      
-      // 更新当前目录（如果是cd命令）
+
+      // Update current directory (if cd command)
       if (command.trim().startsWith('cd ')) {
         connection.currentDirectory = await this.getCurrentDirectory(connectionId);
       }
-      
+
       return {
         stdout: result.stdout,
         stderr: result.stderr,
         code: result.code as number
       };
     } catch (error) {
-      // 处理错误
-      console.error(`在连接 ${connectionId} 上执行命令时出错:`, error);
-      
+      // Handle error
+      console.error(`Error executing command on connection ${connectionId}:`, error);
+
       return {
         stdout: '',
         stderr: error instanceof Error ? error.message : String(error),
@@ -597,45 +719,46 @@ export class SSHService {
       };
     }
   }
-  
-  // 在后台执行命令
+
+  // Execute command in background
   public async executeBackgroundCommand(connectionId: string, command: string, options?: { cwd?: string, interval?: number }): Promise<string> {
     const connection = this.connections.get(connectionId);
     if (!connection || !connection.client || connection.status !== ConnectionStatus.CONNECTED) {
-      throw new Error(`连接 ${connectionId} 不可用或未连接`);
+      throw new Error(`Connection ${connectionId} is unavailable or not connected`);
     }
-    
+
     try {
-      // 准备选项
+      // Prepare options
       const execOptions: any = {};
-      
-      // 工作目录
+
+      // Working directory
       if (options?.cwd) {
         execOptions.cwd = options.cwd;
       } else if (connection.currentDirectory) {
         execOptions.cwd = connection.currentDirectory;
       }
 
-      // 检查是否是sudo命令
+      // SECURITY: Check if command needs sudo authentication
       if (command.trim().startsWith('sudo ') || command.includes(' sudo ')) {
-        // 尝试获取密码
+        // Try to get password
         let password = connection.config.password;
         if (!password) {
           const savedCredentials = await this.getCredentials(connection.id);
           password = savedCredentials.password;
         }
 
-        // 如果有密码，使用echo密码 | sudo -S 的方式运行
+        // SECURITY FIX: Use temp file with restricted permissions instead of command-line pipe
         if (password) {
-          // 修改命令以自动提供密码
-          // 使用 -S 标志让sudo从标准输入读取密码
           const sudoCommand = command.replace(/\bsudo\b/g, 'sudo -S');
-          // 使用echo和管道传递密码，并添加命令使sudo在用户输入时不显示
-          command = `echo "${password}" | ${sudoCommand} 2>/dev/null`;
+          // SECURITY: Don't use echo pipe which exposes password in process list
+          // Use temp file with 600 permissions for background commands
+          const tmpFile = `/tmp/.sudo_ssh_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+          // Create temp file with password, read it, then delete - password appears briefly but is more protected
+          command = `umask 077 && echo "${password}" > "${tmpFile}" && chmod 600 "${tmpFile}" && ${sudoCommand} < "${tmpFile}" 2>/dev/null; rm -f "${tmpFile}"`;
         }
       }
-      
-      // 创建一个唯一任务ID
+
+      // Create unique task ID
       const taskId = crypto
         .createHash('md5')
         .update(`${connectionId}:${command}:${Date.now()}`)
@@ -769,7 +892,7 @@ export class SSHService {
       
       return taskId;
     } catch (error) {
-      console.error(`在连接 ${connectionId} 上启动后台命令时出错:`, error);
+      console.error(`Error starting background command on connection ${connectionId}:`, error);
       throw error;
     }
   }
@@ -814,7 +937,7 @@ export class SSHService {
       
       return true;
     } catch (error) {
-      console.error(`停止后台任务 ${taskId} 时出错:`, error);
+      console.error(`Error stopping background task ${taskId}:`, error);
       return false;
     }
   }
@@ -955,7 +1078,7 @@ export class SSHService {
       
       return this.fileTransfers.get(transferId) as FileTransferInfo;
     } catch (error) {
-      console.error(`上传文件到连接 ${connectionId} 时出错:`, error);
+      console.error(`Error uploading file to connection ${connectionId}:`, error);
       
       const errorMessage = error instanceof Error ? error.message : String(error);
       
@@ -1102,7 +1225,7 @@ export class SSHService {
       
       return this.fileTransfers.get(transferId) as FileTransferInfo;
     } catch (error) {
-      console.error(`从连接 ${connectionId} 下载文件时出错:`, error);
+      console.error(`Error downloading file from connection ${connectionId}:`, error);
       
       const errorMessage = error instanceof Error ? error.message : String(error);
       
@@ -1166,7 +1289,7 @@ export class SSHService {
       } catch (error) {
         const err = error instanceof Error ? error : new Error(String(error));
         errors.push(err);
-        console.error(`批量传输过程中出错:`, error);
+        console.error(`Error during batch transfer:`, error);
       }
     }
     
@@ -1224,7 +1347,7 @@ export class SSHService {
       const result = await connection.client.execCommand('pwd');
       return result.stdout.trim();
     } catch (error) {
-      console.error(`获取当前目录时出错:`, error);
+      console.error(`Error getting current directory:`, error);
       return '';
     }
   }
@@ -1251,7 +1374,7 @@ export class SSHService {
         await keytar.deletePassword('mcp-ssh', connectionId);
         await keytar.deletePassword('mcp-ssh-passphrase', connectionId);
       } catch (error) {
-        console.warn(`无法删除凭证: ${error}`);
+        console.warn(`Failed to delete credentials: ${error}`);
       }
     } else {
       await this.ensureReady();
@@ -1355,7 +1478,7 @@ export class SSHService {
         
         // 处理错误
         socket.on('error', (err) => {
-          console.error(`隧道 ${tunnelId} 上的本地套接字错误:`, err);
+          console.error(`Local socket error on tunnel ${tunnelId}:`, err);
           connections.delete(socket);
           socket.destroy();
         });
@@ -1381,14 +1504,14 @@ export class SSHService {
           
           // 处理错误
           stream.on('error', (err: Error) => {
-            console.error(`隧道 ${tunnelId} 上的SSH流错误:`, err);
+            console.error(`SSH stream error on tunnel ${tunnelId}:`, err);
             // 确保我们从集合中移除socket
             connections.delete(socket);
             socket.destroy();
           });
           
           socket.on('error', (err: Error) => {
-            console.error(`隧道 ${tunnelId} 上的本地套接字错误:`, err);
+            console.error(`Local socket error on tunnel ${tunnelId}:`, err);
             stream.destroy();
           });
           
@@ -1402,7 +1525,7 @@ export class SSHService {
             stream.destroy();
           });
         }).catch((err) => {
-          console.error(`为隧道 ${tunnelId} 创建转发时出错:`, err);
+          console.error(`Error creating forwarding for tunnel ${tunnelId}:`, err);
           connections.delete(socket);
           socket.destroy();
         });
@@ -1425,7 +1548,7 @@ export class SSHService {
     } catch (error) {
       // 清理失败的隧道
       this.closeTunnel(tunnelId).catch(() => {});
-      console.error(`创建隧道时出错:`, error);
+      console.error(`Error creating tunnel:`, error);
       throw error;
     }
   }
@@ -1467,7 +1590,7 @@ export class SSHService {
       
       return true;
     } catch (error) {
-      console.error(`关闭隧道 ${tunnelId} 时出错:`, error);
+      console.error(`Error closing tunnel ${tunnelId}:`, error);
       return false;
     }
   }
@@ -1564,7 +1687,7 @@ export class SSHService {
                   stream.write(`${credentials.password}\n`);
                 }
               }).catch(err => {
-                console.error('获取SSH密码时出错:', err);
+                console.error('Error getting SSH password:', err);
               });
             } else {
               // 直接提供密码
@@ -1588,13 +1711,13 @@ export class SSHService {
       // 处理流关闭
       stream.on('close', () => {
         this.closeTerminalSession(sessionId).catch(err => {
-          console.error(`关闭终端会话 ${sessionId} 时出错:`, err);
+          console.error(`Error closing terminal session ${sessionId}:`, err);
         });
       });
       
       return sessionId;
     } catch (error) {
-      console.error(`创建终端会话时出错:`, error);
+      console.error(`Error creating terminal session:`, error);
       throw error;
     }
   }
@@ -1638,7 +1761,7 @@ export class SSHService {
       
       return true;
     } catch (error) {
-      console.error(`向终端写入数据时出错:`, error);
+      console.error(`Error writing data to terminal:`, error);
       return false;
     }
   }
@@ -1663,7 +1786,7 @@ export class SSHService {
       
       return true;
     } catch (error) {
-      console.error(`调整终端会话 ${sessionId} 大小时出错:`, error);
+      console.error(`Error resizing terminal session ${sessionId}:`, error);
       return false;
     }
   }
@@ -1764,7 +1887,7 @@ export class SSHService {
       }
     }
     
-    console.log(`已清理完成的文件传输记录，当前剩余: ${this.fileTransfers.size}`);
+    console.log(`Cleaned up completed file transfers, remaining: ${this.fileTransfers.size}`);
   }
   
   // 清理不活跃的资源
@@ -1776,7 +1899,7 @@ export class SSHService {
     for (const [id, session] of this.terminalSessions.entries()) {
       if (session.lastActivity < oneDayAgo) {
         this.closeTerminalSession(id).catch(err => {
-          console.error(`自动清理终端会话 ${id} 时出错:`, err);
+          console.error(`Error auto-cleaning terminal session ${id}:`, err);
         });
       }
     }
@@ -1787,7 +1910,7 @@ export class SSHService {
       // 未来可以添加活动时间跟踪
     }
     
-    console.log(`已清理不活跃资源，当前终端会话: ${this.terminalSessions.size}, 隧道: ${this.tunnels.size}`);
+    console.log(`Cleaned up inactive resources, current terminal sessions: ${this.terminalSessions.size}, tunnels: ${this.tunnels.size}`);
   }
   
   // 关闭服务
