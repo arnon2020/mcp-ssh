@@ -28,7 +28,7 @@ export class ProcessManager {
         const lockData = JSON.parse(fs.readFileSync(LOCK_FILE, 'utf8'));
         // 只清理自己的锁文件
         if (lockData.instanceId === this.instanceId) {
-          fs.unlinkSync(LOCK_FILE);
+          fs.rmSync(LOCK_FILE, { force: true });
         }
       }
     } catch (error) {
@@ -73,11 +73,11 @@ export class ProcessManager {
           }
           
           // 删除旧的锁文件
-          fs.unlinkSync(LOCK_FILE);
+          fs.rmSync(LOCK_FILE, { force: true });
         } catch (e) {
           // 进程不存在，删除旧的锁文件
           console.log('发现旧的锁文件但进程已不存在，正在清理...');
-          fs.unlinkSync(LOCK_FILE);
+          fs.rmSync(LOCK_FILE, { force: true });
         }
       }
 
