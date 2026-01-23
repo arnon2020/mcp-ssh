@@ -764,7 +764,7 @@ export class SSHService {
         .update(`${connectionId}:${command}:${Date.now()}`)
         .digest('hex');
       
-      // 启动后台进程
+      // Start background process
       const process = await connection.client.exec(command, [], {
         cwd: execOptions.cwd,
         stream: 'both',
@@ -783,8 +783,8 @@ export class SSHService {
           }
         }
       });
-      
-      // 记录任务信息
+
+      // Record task info
       const task: BackgroundTask = {
         client: connection.client,
         process,
@@ -794,87 +794,87 @@ export class SSHService {
       };
       
       this.backgroundTasks.set(taskId, task);
-      
-      // 处理进程结束
+
+      // Handle process end
       if (process && typeof process === 'object' && process.hasOwnProperty('code')) {
-        // 如果已经有code属性，表示进程已经结束
+        // If it already has code property, process has finished
         const code = (process as any).code;
         task.isRunning = false;
         task.exitCode = typeof code === 'number' ? code : 0;
         task.endTime = new Date();
-        
-        this.eventEmitter.emit('task-end', { 
-          id: taskId, 
-          output: task.output, 
+
+        this.eventEmitter.emit('task-end', {
+          id: taskId,
+          output: task.output,
           exitCode: task.exitCode,
           startTime: task.startTime,
           endTime: task.endTime
         });
       } else {
-        // 监听进程的子事件来检测完成
-        // node-ssh的exec返回有可能不包含标准属性，所以使用一个定时器来检查任务是否完成
+        // Listen to process child events to detect completion
+        // node-ssh exec return might not include standard properties, so use a timer to check if task is complete
         const checkInterval = setInterval(() => {
           const currentTask = this.backgroundTasks.get(taskId);
-          if (currentTask && currentTask.isRunning && process && 
+          if (currentTask && currentTask.isRunning && process &&
               typeof process === 'object' && process.hasOwnProperty('code')) {
-            // 进程已完成
+            // Process completed
             clearInterval(checkInterval);
-            
+
             const code = (process as any).code;
             currentTask.isRunning = false;
             currentTask.exitCode = typeof code === 'number' ? code : 0;
             currentTask.endTime = new Date();
-            
-            // 停止间隔发送
+
+            // Stop interval sending
             if (currentTask.interval) {
               clearInterval(currentTask.interval);
               currentTask.interval = undefined;
             }
-            
-            this.eventEmitter.emit('task-end', { 
-              id: taskId, 
-              output: currentTask.output, 
+
+            this.eventEmitter.emit('task-end', {
+              id: taskId,
+              output: currentTask.output,
               exitCode: currentTask.exitCode,
               startTime: currentTask.startTime,
               endTime: currentTask.endTime
             });
           }
-        }, 1000); // 每秒检查一次
-        
-        // 5分钟后强制结束检查，避免无限循环
+        }, 1000); // Check every second
+
+        // Force end check after 5 minutes to avoid infinite loop
         setTimeout(() => {
           clearInterval(checkInterval);
           const currentTask = this.backgroundTasks.get(taskId);
           if (currentTask && currentTask.isRunning) {
-            // 强制标记为已完成
+            // Force mark as completed
             currentTask.isRunning = false;
-            currentTask.exitCode = -1; // 表示超时
+            currentTask.exitCode = -1; // Indicates timeout
             currentTask.endTime = new Date();
-            
-            // 停止间隔发送
+
+            // Stop interval sending
             if (currentTask.interval) {
               clearInterval(currentTask.interval);
               currentTask.interval = undefined;
             }
-            
-            this.eventEmitter.emit('task-end', { 
-              id: taskId, 
-              output: currentTask.output, 
+
+            this.eventEmitter.emit('task-end', {
+              id: taskId,
+              output: currentTask.output,
               exitCode: currentTask.exitCode,
               startTime: currentTask.startTime,
               endTime: currentTask.endTime
             });
           }
-        }, 5 * 60 * 1000); // 5分钟
+        }, 5 * 60 * 1000); // 5 minutes
       }
-      
-      // 如果设置了间隔，定期发送输出
+
+      // If interval is set, send output periodically
       if (options?.interval) {
         const interval = setInterval(() => {
           const task = this.backgroundTasks.get(taskId);
           if (task && task.isRunning) {
-            this.eventEmitter.emit('task-update', { 
-              id: taskId, 
+            this.eventEmitter.emit('task-update', {
+              id: taskId,
               output: task.output,
               isRunning: true,
               startTime: task.startTime
@@ -883,72 +883,72 @@ export class SSHService {
             clearInterval(interval);
           }
         }, options.interval);
-        
+
         const task = this.backgroundTasks.get(taskId);
         if (task) {
           task.interval = interval;
         }
       }
-      
+
       return taskId;
     } catch (error) {
       console.error(`Error starting background command on connection ${connectionId}:`, error);
       throw error;
     }
   }
-  
-  // 停止后台任务
+
+  // Stop background task
   public async stopBackgroundTask(taskId: string): Promise<boolean> {
     const task = this.backgroundTasks.get(taskId);
     if (!task || !task.isRunning) {
       return false;
     }
-    
+
     try {
-      // 发送SIGTERM信号
+      // Send SIGTERM signal
       task.process.signal('SIGTERM');
-      
-      // 给进程一些时间响应信号
+
+      // Give process some time to respond to signal
       await new Promise(resolve => setTimeout(resolve, 500));
-      
-      // 如果仍在运行，尝试SIGKILL
+
+      // If still running, try SIGKILL
       if (task.isRunning) {
         task.process.signal('SIGKILL');
       }
-      
-      // 更新状态
+
+      // Update status
       task.isRunning = false;
       task.endTime = new Date();
-      task.error = '任务被强制终止';
-      
-      // 停止间隔发送
+      task.error = 'Task was forcibly terminated';
+
+      // Stop interval sending
       if (task.interval) {
         clearInterval(task.interval);
         task.interval = undefined;
       }
-      
-      this.eventEmitter.emit('task-end', { 
-        id: taskId, 
-        output: task.output, 
+
+      this.eventEmitter.emit('task-end', {
+        id: taskId,
+        output: task.output,
         error: task.error,
         startTime: task.startTime,
         endTime: task.endTime
       });
-      
+
       return true;
     } catch (error) {
       console.error(`Error stopping background task ${taskId}:`, error);
       return false;
     }
   }
-  
-  // 获取后台任务信息
+
+  // Get background task info
   public getBackgroundTaskInfo(taskId: string): BackgroundTaskResult | undefined {
     const task = this.backgroundTasks.get(taskId);
     if (!task) {
       return undefined;
     }
-    
+
     return {
       id: taskId,
       output: task.output,
@@ -959,8 +959,8 @@ export class SSHService {
       endTime: task.endTime
     };
   }
-  
-  // 获取所有后台任务
+
+  // Get all background tasks
   public getAllBackgroundTasks(): BackgroundTaskResult[] {
     const results: BackgroundTaskResult[] = [];
     
@@ -978,28 +978,28 @@ export class SSHService {
     
     return results;
   }
-  
-  // 上传文件（带进度）
+
+  // Upload file (with progress)
   public async uploadFile(connectionId: string, localPath: string, remotePath: string): Promise<FileTransferInfo> {
     const connection = this.connections.get(connectionId);
     if (!connection || !connection.client || connection.status !== ConnectionStatus.CONNECTED) {
-      throw new Error(`连接 ${connectionId} 不可用或未连接`);
+      throw new Error(`Connection ${connectionId} unavailable or not connected`);
     }
-    
-    // 创建传输ID
+
+    // Create transfer ID
     const transferId = crypto
       .createHash('md5')
       .update(`upload:${connectionId}:${localPath}:${remotePath}:${Date.now()}`)
       .digest('hex');
-    
+
     try {
-      // 检查源文件
+      // Check source file
       const stats = fs.statSync(localPath);
       if (!stats.isFile()) {
-        throw new Error(`本地路径 ${localPath} 不是一个文件`);
+        throw new Error(`Local path ${localPath} is not a file`);
       }
-      
-      // 创建传输信息
+
+      // Create transfer info
       const transferInfo: FileTransferInfo = {
         id: transferId,
         localPath,
@@ -1011,40 +1011,40 @@ export class SSHService {
         bytesTransferred: 0,
         startTime: new Date()
       };
-      
-      // 保存传输信息
+
+      // Save transfer info
       this.fileTransfers.set(transferId, transferInfo);
-      
-      // 使用SFTPStream上传文件
+
+      // Upload file using SFTPStream
       const sftp = await connection.client.requestSFTP();
-      
+
       await new Promise<void>((resolve, reject) => {
-        // 更新传输状态
+        // Update transfer status
         transferInfo.status = 'in-progress';
         this.eventEmitter.emit('transfer-start', transferInfo);
-        
-        // 创建读取流
+
+        // Create read stream
         const readStream = fs.createReadStream(localPath);
-        
-        // 创建写入流
+
+        // Create write stream
         const writeStream = sftp.createWriteStream(remotePath);
-        
-        // 跟踪传输的字节数
+
+        // Track transferred bytes
         let bytesTransferred = 0;
-        
-        // 监听读取数据事件
+
+        // Listen to read data events
         readStream.on('data', (chunk: string | Buffer) => {
           bytesTransferred += Buffer.isBuffer(chunk) ? chunk.length : Buffer.from(chunk).length;
-          
-          // 更新进度
+
+          // Update progress
           transferInfo.bytesTransferred = bytesTransferred;
           transferInfo.progress = Math.min(100, Math.round((bytesTransferred / stats.size) * 100));
-          
-          // 发出进度事件
+
+          // Emit progress event
           this.eventEmitter.emit('transfer-progress', transferInfo);
         });
-        
-        // 处理错误
+
+        // Handle errors
         readStream.on('error', (err: Error) => {
           transferInfo.status = 'failed';
           transferInfo.error = err.message;
@@ -1052,7 +1052,7 @@ export class SSHService {
           this.eventEmitter.emit('transfer-error', transferInfo);
           reject(err);
         });
-        
+
         writeStream.on('error', (err: Error) => {
           transferInfo.status = 'failed';
           transferInfo.error = err.message;
@@ -1061,8 +1061,8 @@ export class SSHService {
           readStream.destroy();
           reject(err);
         });
-        
-        // 处理完成
+
+        // Handle completion
         writeStream.on('close', () => {
           transferInfo.status = 'completed';
           transferInfo.progress = 100;
@@ -1071,8 +1071,8 @@ export class SSHService {
           this.eventEmitter.emit('transfer-complete', transferInfo);
           resolve();
         });
-        
-        // 连接流
+
+        // Connect streams
         readStream.pipe(writeStream);
       });
       
@@ -1082,7 +1082,7 @@ export class SSHService {
       
       const errorMessage = error instanceof Error ? error.message : String(error);
       
-      // 如果已经创建了传输记录，更新为失败状态
+      // If transfer record was created, update to failed status
       if (this.fileTransfers.has(transferId)) {
         const transferInfo = this.fileTransfers.get(transferId)!;
         transferInfo.status = 'failed';
@@ -1092,7 +1092,7 @@ export class SSHService {
         return transferInfo;
       }
       
-      // 创建失败的传输记录
+      // Create failed transfer record
       const failedTransfer: FileTransferInfo = {
         id: transferId,
         localPath,
@@ -1114,30 +1114,30 @@ export class SSHService {
     }
   }
   
-  // 下载文件（带进度）
+  // Download file (with progress)
   public async downloadFile(connectionId: string, remotePath: string, localPath: string): Promise<FileTransferInfo> {
     const connection = this.connections.get(connectionId);
     if (!connection || !connection.client || connection.status !== ConnectionStatus.CONNECTED) {
-      throw new Error(`连接 ${connectionId} 不可用或未连接`);
+      throw new Error(`Connection ${connectionId} unavailable or not connected`);
     }
     
-    // 创建传输ID
+    // Create transfer ID
     const transferId = crypto
       .createHash('md5')
       .update(`download:${connectionId}:${remotePath}:${localPath}:${Date.now()}`)
       .digest('hex');
     
     try {
-      // 创建本地目录
+      // Create local directory
       const localDir = path.dirname(localPath);
       if (!fs.existsSync(localDir)) {
         fs.mkdirSync(localDir, { recursive: true });
       }
       
-      // 获取SFTP
+      // Get SFTP
       const sftp = await connection.client.requestSFTP();
       
-      // 获取远程文件大小
+      // Get remote file size
       const stats = await new Promise<any>((resolve, reject) => {
         sftp.stat(remotePath, (err: Error | undefined, stats: any) => {
           if (err) {
@@ -1148,7 +1148,7 @@ export class SSHService {
         });
       });
       
-      // 创建传输信息
+      // Create transfer info
       const transferInfo: FileTransferInfo = {
         id: transferId,
         localPath,
@@ -1161,36 +1161,36 @@ export class SSHService {
         startTime: new Date()
       };
       
-      // 保存传输信息
+      // Save transfer info
       this.fileTransfers.set(transferId, transferInfo);
       
       await new Promise<void>((resolve, reject) => {
-        // 更新传输状态
+        // Update transfer status
         transferInfo.status = 'in-progress';
         this.eventEmitter.emit('transfer-start', transferInfo);
         
-        // 创建读取流
+        // Create read stream
         const readStream = sftp.createReadStream(remotePath);
         
-        // 创建写入流
+        // Create write stream
         const writeStream = fs.createWriteStream(localPath);
         
-        // 跟踪传输的字节数
+        // Track bytes transferred
         let bytesTransferred = 0;
         
-        // 监听读取数据事件
+        // Listen for data read events
         readStream.on('data', (chunk: string | Buffer) => {
           bytesTransferred += Buffer.isBuffer(chunk) ? chunk.length : Buffer.from(chunk).length;
           
-          // 更新进度
+          // Update progress
           transferInfo.bytesTransferred = bytesTransferred;
           transferInfo.progress = Math.min(100, Math.round((bytesTransferred / stats.size) * 100));
           
-          // 发出进度事件
+          // Emit progress event
           this.eventEmitter.emit('transfer-progress', transferInfo);
         });
         
-        // 处理错误
+        // Handle errors
         readStream.on('error', (err: Error) => {
           transferInfo.status = 'failed';
           transferInfo.error = err.message;
@@ -1209,7 +1209,7 @@ export class SSHService {
           reject(err);
         });
         
-        // 处理完成
+        // Handle completion
         writeStream.on('close', () => {
           transferInfo.status = 'completed';
           transferInfo.progress = 100;
@@ -1219,7 +1219,7 @@ export class SSHService {
           resolve();
         });
         
-        // 连接流
+        // Pipe streams
         readStream.pipe(writeStream);
       });
       
@@ -1229,7 +1229,7 @@ export class SSHService {
       
       const errorMessage = error instanceof Error ? error.message : String(error);
       
-      // 如果已经创建了传输记录，更新为失败状态
+      // If transfer record was created, update to failed status
       if (this.fileTransfers.has(transferId)) {
         const transferInfo = this.fileTransfers.get(transferId)!;
         transferInfo.status = 'failed';
@@ -1239,7 +1239,7 @@ export class SSHService {
         return transferInfo;
       }
       
-      // 创建失败的传输记录
+      // Create failed transfer record
       const failedTransfer: FileTransferInfo = {
         id: transferId,
         localPath,
@@ -1261,20 +1261,20 @@ export class SSHService {
     }
   }
   
-  // 批量传输文件
+  // Batch transfer files
   public async batchTransfer(config: BatchTransferConfig): Promise<string[]> {
     const { connectionId, items, direction } = config;
     
-    // 检查连接
+    // Check connection
     const connection = this.connections.get(connectionId);
     if (!connection || !connection.client || connection.status !== ConnectionStatus.CONNECTED) {
-      throw new Error(`连接 ${connectionId} 不可用或未连接`);
+      throw new Error(`Connection ${connectionId} unavailable or not connected`);
     }
     
     const transferIds: string[] = [];
     const errors: Error[] = [];
     
-    // 按顺序处理每个项目
+    // Process each item sequentially
     for (const item of items) {
       try {
         let transferInfo: FileTransferInfo;
@@ -1293,26 +1293,26 @@ export class SSHService {
       }
     }
     
-    // 如果所有传输都失败，抛出错误
+    // If all transfers failed, throw error
     if (errors.length === items.length) {
-      throw new Error(`批量传输完全失败: ${errors.map(e => e.message).join(', ')}`);
+      throw new Error(`Batch transfer completely failed: ${errors.map(e => e.message).join(', ')}`);
     }
     
-    // 返回成功的传输ID
+    // Return successful transfer IDs
     return transferIds;
   }
   
-  // 获取传输信息
+  // Get transfer info
   public getTransferInfo(transferId: string): FileTransferInfo | undefined {
     return this.fileTransfers.get(transferId);
   }
   
-  // 获取所有传输
+  // Get all transfers
   public getAllTransfers(): FileTransferInfo[] {
     return Array.from(this.fileTransfers.values());
   }
   
-  // 注册进度回调
+  // Register progress callback
   public onTransferProgress(callback: (info: FileTransferInfo) => void): () => void {
     this.eventEmitter.on('transfer-progress', callback);
     return () => {
@@ -1320,7 +1320,7 @@ export class SSHService {
     };
   }
   
-  // 注册完成回调
+  // Register completion callback
   public onTransferComplete(callback: (info: FileTransferInfo) => void): () => void {
     this.eventEmitter.on('transfer-complete', callback);
     return () => {
@@ -1328,7 +1328,7 @@ export class SSHService {
     };
   }
   
-  // 注册错误回调
+  // Register error callback
   public onTransferError(callback: (info: FileTransferInfo) => void): () => void {
     this.eventEmitter.on('transfer-error', callback);
     return () => {
@@ -1336,11 +1336,11 @@ export class SSHService {
     };
   }
   
-  // 获取当前目录
+  // Get current directory
   private async getCurrentDirectory(connectionId: string): Promise<string> {
     const connection = this.connections.get(connectionId);
     if (!connection || !connection.client || connection.status !== ConnectionStatus.CONNECTED) {
-      throw new Error(`连接 ${connectionId} 不可用或未连接`);
+      throw new Error(`Connection ${connectionId} unavailable or not connected`);
     }
     
     try {
@@ -1352,22 +1352,22 @@ export class SSHService {
     }
   }
   
-  // 删除连接
+  // Delete connection
   public async deleteConnection(connectionId: string): Promise<boolean> {
     await this.ensureReady();
     
-    // 断开连接
+    // Disconnect
     await this.disconnect(connectionId);
     
-    // 从数据库中删除
+    // Delete from database
     if (this.connectionCollection) {
       this.connectionCollection.findAndRemove({ id: connectionId });
     }
     
-    // 从内存中删除
+    // Delete from memory
     this.connections.delete(connectionId);
     
-    // 删除凭据
+    // Delete credentials
     if (!this.isDocker) {
       try {
         const keytar = (await import('keytar')).default;
@@ -1386,7 +1386,7 @@ export class SSHService {
     return true;
   }
 
-  // 更新连接配置（安全存储凭证）
+  // Update connection configuration (securely store credentials)
   public async updateConnection(
     connectionId: string,
     updates: Partial<SSHConnectionConfig> & { name?: string },
@@ -1396,31 +1396,31 @@ export class SSHService {
 
     const connection = this.connections.get(connectionId);
     if (!connection) {
-      throw new Error(`连接 ${connectionId} 不存在`);
+      throw new Error(`Connection ${connectionId} does not exist`);
     }
 
     const wasConnected = connection.status === ConnectionStatus.CONNECTED;
     const oldHost = connection.config.host;
     const oldName = connection.name || connectionId;
 
-    // 保存旧凭证用于清理
+    // Save old credentials for cleanup
     const hadPassword = !!connection.config.password;
     const hadPassphrase = !!connection.config.passphrase;
 
-    // 更新配置
+    // Update configuration
     Object.assign(connection.config, updates);
 
-    // 更新名称
+    // Update name
     if (updates.name !== undefined) {
       connection.name = updates.name;
     }
 
-    // 保存新凭证到 keytar
+    // Save new credentials to keytar
     if (rememberPassword && (updates.password !== undefined || updates.passphrase !== undefined)) {
       await this.saveCredentials(connectionId, updates.password, updates.passphrase);
     }
 
-    // 如果已连接，断开以应用新配置
+    // If connected, disconnect to apply new configuration
     if (wasConnected) {
       await this.disconnect(connectionId);
     }
@@ -1428,35 +1428,35 @@ export class SSHService {
     return connection;
   }
 
-  // 创建SSH隧道
+  // Create SSH tunnel
   public async createTunnel(config: TunnelConfig): Promise<string> {
     const connection = this.connections.get(config.connectionId);
     if (!connection || !connection.client || connection.status !== ConnectionStatus.CONNECTED) {
-      throw new Error(`连接 ${config.connectionId} 不可用或未连接`);
+      throw new Error(`Connection ${config.connectionId} unavailable or not connected`);
     }
     
-    // 生成隧道ID
+    // Generate tunnel ID
     const tunnelId = config.id || crypto
       .createHash('md5')
       .update(`${config.connectionId}:${config.localPort}:${config.remoteHost}:${config.remotePort}:${Date.now()}`)
       .digest('hex');
     
-    // 检查端口是否已在使用
+    // Check if port is already in use
     const existingTunnel = Array.from(this.tunnels.values())
       .find(t => t.config.localPort === config.localPort && t.isActive);
     
     if (existingTunnel) {
-      throw new Error(`本地端口 ${config.localPort} 已被另一个隧道使用`);
+      throw new Error(`Local port ${config.localPort} is already in use by another tunnel`);
     }
     
     try {
-      // 创建本地服务器
+      // Create local server
       const server = net.createServer();
       
-      // 记录活动连接
+      // Track active connections
       const connections = new Set<net.Socket>();
       
-      // 设置隧道信息
+      // Set tunnel info
       this.tunnels.set(tunnelId, {
         config: {
           ...config,
@@ -1467,23 +1467,23 @@ export class SSHService {
         isActive: false
       });
       
-      // 设置连接处理
+      // Set up connection handler
       server.on('connection', (socket) => {
         connections.add(socket);
         
-        // 当连接结束时，从集合中删除
+        // When connection ends, remove from set
         socket.on('close', () => {
           connections.delete(socket);
         });
         
-        // 处理错误
+        // Handle errors
         socket.on('error', (err) => {
           console.error(`Local socket error on tunnel ${tunnelId}:`, err);
           connections.delete(socket);
           socket.destroy();
         });
         
-        // 创建到SSH服务器的连接
+        // Create connection to SSH server
         const sshClient = connection.client;
         if (!sshClient) {
           socket.destroy();
@@ -1491,21 +1491,21 @@ export class SSHService {
           return;
         }
         
-        // 创建到远程主机的连接
+        // Create connection to remote host
         sshClient.forwardOut(
           '127.0.0.1',
           socket.remotePort || 0,
           config.remoteHost,
           config.remotePort
         ).then((stream) => {
-          // 将本地套接字连接到SSH流
+          // Connect local socket to SSH stream
           socket.pipe(stream);
           stream.pipe(socket);
           
-          // 处理错误
+          // Handle errors
           stream.on('error', (err: Error) => {
             console.error(`SSH stream error on tunnel ${tunnelId}:`, err);
-            // 确保我们从集合中移除socket
+            // Ensure we remove socket from set
             connections.delete(socket);
             socket.destroy();
           });
@@ -1515,7 +1515,7 @@ export class SSHService {
             stream.destroy();
           });
           
-          // 处理关闭
+          // Handle close
           stream.on('close', () => {
             connections.delete(socket);
             socket.destroy();
@@ -1531,7 +1531,7 @@ export class SSHService {
         });
       });
       
-      // 启动服务器
+      // Start server
       await new Promise<void>((resolve, reject) => {
         server.on('error', reject);
         server.listen(config.localPort, '127.0.0.1', () => {
@@ -1543,17 +1543,17 @@ export class SSHService {
         });
       });
       
-      // 返回隧道ID
+      // Return tunnel ID
       return tunnelId;
     } catch (error) {
-      // 清理失败的隧道
+      // Clean up failed tunnel
       this.closeTunnel(tunnelId).catch(() => {});
       console.error(`Error creating tunnel:`, error);
       throw error;
     }
   }
   
-  // 关闭SSH隧道
+  // Close SSH tunnel
   public async closeTunnel(tunnelId: string): Promise<boolean> {
     const tunnel = this.tunnels.get(tunnelId);
     if (!tunnel) {
@@ -1561,20 +1561,20 @@ export class SSHService {
     }
     
     try {
-      // 关闭所有活动连接
+      // Close all active connections
       for (const socket of tunnel.connections) {
-        // 先移除所有事件监听器
+        // First remove all event listeners
         socket.removeAllListeners();
-        // 然后关闭连接
+        // Then close connection
         socket.destroy();
       }
       
-      // 清空连接集合
+      // Clear connections set
       tunnel.connections.clear();
       
-      // 关闭服务器
+      // Close server
       if (tunnel.server) {
-        // 移除所有事件监听器
+        // Remove all event listeners
         tunnel.server.removeAllListeners();
         
         await new Promise<void>((resolve) => {
@@ -1582,10 +1582,10 @@ export class SSHService {
         });
       }
       
-      // 更新状态
+      // Update status
       tunnel.isActive = false;
       
-      // 移除隧道
+      // Remove tunnel
       this.tunnels.delete(tunnelId);
       
       return true;
@@ -1595,41 +1595,41 @@ export class SSHService {
     }
   }
   
-  // 获取所有隧道
+  // Get all tunnels
   public getTunnels(): TunnelConfig[] {
     return Array.from(this.tunnels.values())
       .filter(t => t.isActive)
       .map(t => t.config);
   }
   
-  // 创建终端会话
+  // Create terminal session
   public async createTerminalSession(connectionId: string, config?: TerminalSessionConfig): Promise<string> {
     const connection = this.connections.get(connectionId);
     if (!connection || !connection.client || connection.status !== ConnectionStatus.CONNECTED) {
-      throw new Error(`连接 ${connectionId} 不可用或未连接`);
+      throw new Error(`Connection ${connectionId} unavailable or not connected`);
     }
     
     try {
-      // 生成会话ID
+      // Generate session ID
       const sessionId = crypto
         .createHash('md5')
         .update(`terminal:${connectionId}:${Date.now()}`)
         .digest('hex');
       
-      // 终端配置
+      // Terminal configuration
       const termConfig = {
         rows: config?.rows || 24,
         cols: config?.cols || 80,
         term: config?.term || 'xterm-256color'
       };
       
-      // 创建Shell会话
+      // Create shell session
       const ssh2Client = (connection.client as any).connection;
       if (!ssh2Client) {
-        throw new Error(`无法获取底层SSH2连接`);
+        throw new Error(`Cannot get underlying SSH2 connection`);
       }
       
-      // 创建Shell请求
+      // Create shell request
       const stream = await new Promise<any>((resolve, reject) => {
         ssh2Client.shell({
           term: termConfig.term,
@@ -1646,7 +1646,7 @@ export class SSHService {
         });
       });
       
-      // 创建会话记录
+      // Create session record
       const session: TerminalSession = {
         id: sessionId,
         connectionId,
@@ -1660,37 +1660,37 @@ export class SSHService {
         sudoPasswordPrompt: false
       };
       
-      // 保存会话
+      // Save session
       this.terminalSessions.set(sessionId, session);
       
-      // 设置数据处理
+      // Set up data handling
       stream.on('data', (data: Buffer) => {
         const dataStr = data.toString('utf8');
         
-        // 检测是否是sudo密码提示
+        // Detect if it's a sudo password prompt
         if (dataStr.includes('[sudo] password for') || 
             dataStr.includes('Password:') || 
-            dataStr.includes('密码：')) {
-          // 标记为sudo密码提示
+            dataStr.includes('Password:')) {
+          // Mark as sudo password prompt
           session.sudoPasswordPrompt = true;
           
-          // 获取密码
+          // Get password
           const connection = this.connections.get(connectionId);
           if (connection) {
-            // 尝试直接从连接获取密码
+            // Try to get password directly from connection
             let password = connection.config.password;
             if (!password) {
-              // 如果连接对象中没有密码，从凭据存储获取
+              // If no password in connection object, get from credential storage
               this.getCredentials(connection.id).then(credentials => {
                 if (credentials.password) {
-                  // 自动提供密码
+                  // Automatically provide password
                   stream.write(`${credentials.password}\n`);
                 }
               }).catch(err => {
                 console.error('Error getting SSH password:', err);
               });
             } else {
-              // 直接提供密码
+              // Directly provide password
               stream.write(`${password}\n`);
             }
           }
@@ -1701,14 +1701,14 @@ export class SSHService {
           data: dataStr
         });
         
-        // 更新最后活动时间
+        // Update last activity time
         const currentSession = this.terminalSessions.get(sessionId);
         if (currentSession) {
           currentSession.lastActivity = new Date();
         }
       });
       
-      // 处理流关闭
+      // Handle stream close
       stream.on('close', () => {
         this.closeTerminalSession(sessionId).catch(err => {
           console.error(`Error closing terminal session ${sessionId}:`, err);
@@ -1722,7 +1722,7 @@ export class SSHService {
     }
   }
   
-  // 向终端写入数据
+  // Write data to terminal
   public async writeToTerminal(sessionId: string, data: string): Promise<boolean> {
     const session = this.terminalSessions.get(sessionId);
     if (!session || !session.isActive) {
@@ -1730,12 +1730,12 @@ export class SSHService {
     }
     
     try {
-      // 检查是否是sudo密码提示
+      // Check if it's a sudo password prompt
       if (session.sudoPasswordPrompt) {
-        // 重置sudo密码提示标志
+        // Reset sudo password prompt flag
         session.sudoPasswordPrompt = false;
         
-        // 获取密码
+        // Get password
         const connection = this.connections.get(session.connectionId);
         if (connection) {
           let password = connection.config.password;
@@ -1744,19 +1744,19 @@ export class SSHService {
             password = savedCredentials.password;
           }
           
-          // 如果有密码，自动提供
+          // If password exists, automatically provide
           if (password) {
-            // 发送密码并回车
+            // Send password and enter
             session.stream.write(`${password}\n`);
             return true;
           }
         }
       }
       
-      // 正常写入数据
+      // Write data normally
       session.stream.write(data);
       
-      // 更新最后活动时间
+      // Update last activity time
       session.lastActivity = new Date();
       
       return true;
@@ -1766,22 +1766,22 @@ export class SSHService {
     }
   }
   
-  // 调整终端大小
+  // Resize terminal
   public async resizeTerminal(sessionId: string, rows: number, cols: number): Promise<boolean> {
     const session = this.terminalSessions.get(sessionId);
     if (!session || !session.isActive) {
-      throw new Error(`终端会话 ${sessionId} 不存在或不活跃`);
+      throw new Error(`Terminal session ${sessionId} does not exist or is not active`);
     }
     
     try {
-      // 更新大小
+      // Update size
       session.rows = rows;
       session.cols = cols;
       
-      // 更新最后活动时间
+      // Update last activity time
       session.lastActivity = new Date();
       
-      // 调整终端大小
+      // Resize terminal
       session.stream.setWindow(rows, cols, 0, 0);
       
       return true;
@@ -1791,7 +1791,7 @@ export class SSHService {
     }
   }
   
-  // 关闭终端会话
+  // Close terminal session
   public async closeTerminalSession(sessionId: string): Promise<boolean> {
     const session = this.terminalSessions.get(sessionId);
     if (!session) {
@@ -1799,41 +1799,41 @@ export class SSHService {
     }
     
     try {
-      // 结束流并移除所有事件监听器
+      // End stream and remove all event listeners
       if (session.stream && session.isActive) {
-        // 先移除所有事件监听器，避免内存泄漏
+        // First remove all event listeners to avoid memory leaks
         session.stream.removeAllListeners();
-        // 然后关闭流
+        // Then close stream
         session.stream.end();
         session.isActive = false;
       }
       
-      // 删除会话
+      // Delete session
       this.terminalSessions.delete(sessionId);
       
-      // 发出关闭事件
+      // Emit close event
       this.eventEmitter.emit('terminal-close', { sessionId });
       
       return true;
     } catch (error) {
-      console.error(`关闭终端会话 ${sessionId} 时出错:`, error);
+      console.error(`Error closing terminal session ${sessionId}:`, error);
       return false;
     }
   }
   
-  // 获取终端会话信息
+  // Get terminal session info
   public getTerminalSession(sessionId: string): Omit<TerminalSession, 'stream'> | undefined {
     const session = this.terminalSessions.get(sessionId);
     if (!session) {
       return undefined;
     }
     
-    // 排除流对象
+    // Exclude stream object
     const { stream, ...sessionInfo } = session;
     return sessionInfo;
   }
   
-  // 获取所有终端会话
+  // Get all terminal sessions
   public getAllTerminalSessions(): Omit<TerminalSession, 'stream'>[] {
     const sessions: Omit<TerminalSession, 'stream'>[] = [];
     
@@ -1845,7 +1845,7 @@ export class SSHService {
     return sessions;
   }
   
-  // 注册终端数据事件
+  // Register terminal data event
   public onTerminalData(callback: (event: TerminalDataEvent) => void): () => void {
     this.eventEmitter.on('terminal-data', callback);
     return () => {
@@ -1853,7 +1853,7 @@ export class SSHService {
     };
   }
   
-  // 注册终端关闭事件
+  // Register terminal close event
   public onTerminalClose(callback: (event: { sessionId: string }) => void): () => void {
     this.eventEmitter.on('terminal-close', callback);
     return () => {
@@ -1861,26 +1861,26 @@ export class SSHService {
     };
   }
   
-  // 设置定期清理任务
+  // Set up periodic cleanup tasks
   private setupCleanupTasks(): void {
-    // 每小时清理一次已完成的传输记录
+    // Clean up completed transfer records every hour
     setInterval(() => {
       this.cleanupCompletedTransfers();
-    }, 60 * 60 * 1000); // 1小时
+    }, 60 * 60 * 1000); // 1 hour
     
-    // 每天清理一次长时间不活跃的资源
+    // Clean up inactive resources every day
     setInterval(() => {
       this.cleanupInactiveResources();
-    }, 24 * 60 * 60 * 1000); // 24小时
+    }, 24 * 60 * 60 * 1000); // 24 hours
   }
   
-  // 清理已完成的传输记录
+  // Clean up completed transfer records
   private cleanupCompletedTransfers(): void {
     const now = new Date();
-    const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000); // 1小时前
+    const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000); // 1 hour ago
     
     for (const [id, transfer] of this.fileTransfers.entries()) {
-      // 清理一小时前已完成或失败的传输
+      // Clean up completed or failed transfers from 1 hour ago
       if ((transfer.status === 'completed' || transfer.status === 'failed') && 
           transfer.endTime && new Date(transfer.endTime) < oneHourAgo) {
         this.fileTransfers.delete(id);
@@ -1890,12 +1890,12 @@ export class SSHService {
     console.log(`Cleaned up completed file transfers, remaining: ${this.fileTransfers.size}`);
   }
   
-  // 清理不活跃的资源
+  // Clean up inactive resources
   private cleanupInactiveResources(): void {
     const now = new Date();
-    const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000); // 24小时前
+    const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000); // 24 hours ago
     
-    // 清理长时间不活跃的终端会话
+    // Clean up long inactive terminal sessions
     for (const [id, session] of this.terminalSessions.entries()) {
       if (session.lastActivity < oneDayAgo) {
         this.closeTerminalSession(id).catch(err => {
@@ -1904,40 +1904,40 @@ export class SSHService {
       }
     }
     
-    // 清理长时间不活跃的隧道
+    // Clean up long inactive tunnels
     for (const tunnelId of this.tunnels.keys()) {
-      // 隧道没有活动时间记录，暂时不清理
-      // 未来可以添加活动时间跟踪
+      // Tunnels have no activity time record, not cleaning for now
+      // Activity time tracking can be added in the future
     }
     
     console.log(`Cleaned up inactive resources, current terminal sessions: ${this.terminalSessions.size}, tunnels: ${this.tunnels.size}`);
   }
   
-  // 关闭服务
+  // Close service
   public async close(): Promise<void> {
-    // 关闭所有终端会话
+    // Close all terminal sessions
     for (const sessionId of this.terminalSessions.keys()) {
       await this.closeTerminalSession(sessionId);
     }
     
-    // 关闭所有隧道
+    // Close all tunnels
     for (const tunnelId of this.tunnels.keys()) {
       await this.closeTunnel(tunnelId);
     }
     
-    // 停止所有后台任务
+    // Stop all background tasks
     for (const taskId of this.backgroundTasks.keys()) {
       await this.stopBackgroundTask(taskId);
     }
     
-    // 断开所有连接
+    // Disconnect all connections
     for (const [id, connection] of this.connections.entries()) {
       if (connection.status === ConnectionStatus.CONNECTED && connection.client) {
         await this.disconnect(id);
       }
     }
     
-    // 保存数据库
+    // Save database
     if (this.db) {
       this.db.saveDatabase();
     }

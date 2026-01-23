@@ -1,22 +1,22 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-// 锁文件路径配置
+// Lock file path configuration
 const LOCK_FILE = path.join(process.cwd(), '.mcp-ssh.lock');
 
 export class ProcessManager {
   private instanceId: string;
 
   constructor() {
-    // 生成唯一实例ID
+    // Generate unique instance ID
     this.instanceId = Date.now().toString();
     
-    // 注册进程退出处理
+    // Register process exit handler
     this.registerCleanup();
   }
 
   private registerCleanup(): void {
-    // 注册多个信号以确保清理
+    // Register multiple signals to ensure cleanup
     process.on('SIGINT', () => this.cleanup());
     process.on('SIGTERM', () => this.cleanup());
     process.on('exit', () => this.cleanup());
@@ -26,7 +26,7 @@ export class ProcessManager {
     try {
       if (fs.existsSync(LOCK_FILE)) {
         const lockData = JSON.parse(fs.readFileSync(LOCK_FILE, 'utf8'));
-        // 只清理自己的锁文件
+        // Only clean up own lock file
         if (lockData.instanceId === this.instanceId) {
           fs.rmSync(LOCK_FILE, { force: true });
         }
@@ -41,10 +41,10 @@ export class ProcessManager {
     while (Date.now() - startTime < maxWaitTime) {
       try {
         process.kill(pid, 0);
-        // 如果进程还在运行，等待100ms后再次检查
+        // If process is still running, wait 100ms and check again
         await new Promise(resolve => setTimeout(resolve, 100));
       } catch (e) {
-        // 进程已经退出
+        // Process has exited
         return true;
       }
     }
@@ -53,45 +53,45 @@ export class ProcessManager {
 
   public async checkAndCreateLock(): Promise<boolean> {
     try {
-      // 检查锁文件是否存在
+      // Check if lock file exists
       if (fs.existsSync(LOCK_FILE)) {
         const lockData = JSON.parse(fs.readFileSync(LOCK_FILE, 'utf8'));
         
         try {
-          // 检查进程是否还在运行
+          // Check if process is still running
           process.kill(lockData.pid, 0);
-          console.log('发现已存在的MCP-SSH实例，正在终止旧进程...');
+          console.log('Found existing MCP-SSH instance, terminating old process...');
           
-          // 发送终止信号给旧进程
+          // Send termination signal to old process
           process.kill(lockData.pid, 'SIGTERM');
           
-          // 等待旧进程退出
+          // Wait for old process to exit
           const exited = await this.waitForProcessExit(lockData.pid);
           if (!exited) {
-            console.error('等待旧进程退出超时');
+            console.error('Timeout waiting for old process to exit');
             return false;
           }
           
-          // 删除旧的锁文件
+          // Delete old lock file
           fs.rmSync(LOCK_FILE, { force: true });
         } catch (e) {
-          // 进程不存在，删除旧的锁文件
-          console.log('发现旧的锁文件但进程已不存在，正在清理...');
+          // Process does not exist, delete old lock file
+          console.log('Found old lock file but process does not exist, cleaning up...');
           fs.rmSync(LOCK_FILE, { force: true });
         }
       }
 
-      // 创建新的锁文件
+      // Create new lock file
       fs.writeFileSync(LOCK_FILE, JSON.stringify({
         pid: process.pid,
         instanceId: this.instanceId,
         timestamp: Date.now()
       }));
 
-      console.log('MCP-SSH进程锁创建成功');
+      console.log('MCP-SSH process lock created successfully');
       return true;
     } catch (error) {
-      console.error('处理锁文件时出错:', error);
+      console.error('Error handling lock file:', error);
       return false;
     }
   }
